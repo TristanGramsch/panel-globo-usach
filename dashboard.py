@@ -74,7 +74,8 @@ def create_time_series_plot():
                                         xref="paper", yref="paper",
                                         x=0.5, y=0.5, showarrow=False)
     
-    all_data = []
+    # Dictionary to group data by sensor
+    sensor_data = {}
     
     for file_path in data_dir.glob("*.dat"):
         if file_path.stat().st_size == 0:
@@ -85,22 +86,31 @@ def create_time_series_plot():
         
         if df is not None and len(df) > 0:
             df['sensor_id'] = sensor_id
-            all_data.append(df)
+            
+            # Group data by sensor ID
+            if sensor_id not in sensor_data:
+                sensor_data[sensor_id] = []
+            sensor_data[sensor_id].append(df)
     
-    if not all_data:
+    if not sensor_data:
         return go.Figure().add_annotation(text="No valid data found", 
                                         xref="paper", yref="paper",
                                         x=0.5, y=0.5, showarrow=False)
     
     fig = go.Figure()
-    
     colors = px.colors.qualitative.Set1
     
-    for i, df in enumerate(all_data):
-        sensor_id = df['sensor_id'].iloc[0]
+    # Combine data for each sensor and create a single trace per sensor
+    for i, (sensor_id, dataframes) in enumerate(sorted(sensor_data.items())):
+        # Concatenate all dataframes for this sensor
+        combined_df = pd.concat(dataframes, ignore_index=True)
+        
+        # Sort by datetime to ensure proper line plotting
+        combined_df = combined_df.sort_values('datetime')
+        
         fig.add_trace(go.Scatter(
-            x=df['datetime'],
-            y=df['MP1.0'],
+            x=combined_df['datetime'],
+            y=combined_df['MP1.0'],
             mode='lines',
             name=f'Sensor {sensor_id}',
             line=dict(color=colors[i % len(colors)]),
