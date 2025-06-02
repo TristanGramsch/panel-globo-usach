@@ -19,7 +19,7 @@ fi
 
 # Check if requirements are installed
 echo "🔍 Checking dependencies..."
-python -c "import requests, pandas, matplotlib, flask" 2>/dev/null
+python -c "import requests, pandas, matplotlib, dash, plotly" 2>/dev/null
 if [ $? -ne 0 ]; then
     echo "📦 Installing dependencies..."
     pip install -r requirements.txt

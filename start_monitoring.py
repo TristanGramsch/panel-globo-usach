@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 USACH Environmental Monitoring - Startup Script
-Fetches latest data and starts the web dashboard
+Fetches latest data and starts the Dash dashboard
 """
 
 import subprocess
@@ -24,7 +24,8 @@ def check_dependencies():
         import requests
         import pandas
         import matplotlib
-        import flask
+        import dash
+        import plotly
         print("✅ All dependencies are installed")
         return True
     except ImportError as e:
@@ -60,14 +61,14 @@ def fetch_latest_data():
         return False
 
 def start_dashboard():
-    """Start the web dashboard"""
-    print("🌐 Starting web dashboard...")
-    print("📊 Dashboard will be available at: http://localhost:5000")
-    print("📈 Charts available at: http://localhost:5000/chart")
-    print("🔗 API available at: http://localhost:5000/api/data")
+    """Start the Dash dashboard"""
+    print("🌐 Starting Dash dashboard...")
+    print("📊 Dashboard will be available at: http://localhost:8050")
+    print("📈 Interactive charts and real-time monitoring included")
     print()
     print("💡 Tips:")
     print("   - Dashboard auto-refreshes every 5 minutes")
+    print("   - Interactive charts with hover details")
     print("   - Press Ctrl+C to stop the server")
     print("   - Run this script again to update data and restart")
     print()
@@ -75,8 +76,8 @@ def start_dashboard():
     print("-" * 60)
     
     try:
-        # Start the web dashboard
-        subprocess.run([sys.executable, "web_dashboard.py"])
+        # Start the Dash dashboard
+        subprocess.run([sys.executable, "dashboard.py"])
     except KeyboardInterrupt:
         print("\n🛑 Dashboard stopped by user")
     except Exception as e:
