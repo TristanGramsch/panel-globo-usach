@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-USACH Environmental Monitoring - Dash Dashboard
-Interactive web dashboard for real-time air quality monitoring
+USACH Monitoreo Ambiental - Panel de Control Dash
+Panel web interactivo para monitoreo de calidad del aire en tiempo real
 """
 
 import dash
@@ -15,31 +15,31 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import logging
 
-# Import from our modular structure
+# Importar desde nuestra estructura modular
 from data.processors import get_current_data, parse_piloto_file, get_sensor_data as get_sensor_data_processor
 from config.settings import WHO_GUIDELINES
 from utils.helpers import get_air_quality_category
 
-# Initialize the Dash app
+# Inicializar la aplicación Dash
 app = dash.Dash(__name__)
-app.title = "USACH Air Quality Monitor"
+app.title = "Monitor de Calidad del Aire USACH"
 app.config.suppress_callback_exceptions = True
 
 def get_air_quality_category(avg_mp1):
-    """Get air quality category and color based on WHO guidelines"""
+    """Obtener categoría de calidad del aire y color basado en directrices OMS"""
     if avg_mp1 <= 15:
-        return "Good", "#27ae60", "Very low health risk"
+        return "Buena", "#27ae60", "Riesgo para la salud muy bajo"
     elif avg_mp1 <= 25:
-        return "Moderate", "#f39c12", "Low health risk"
+        return "Moderada", "#f39c12", "Riesgo para la salud bajo"
     elif avg_mp1 <= 35:
-        return "Unhealthy for Sensitive", "#e67e22", "Moderate health risk"
+        return "Dañina para Grupos Sensibles", "#e67e22", "Riesgo para la salud moderado"
     elif avg_mp1 <= 75:
-        return "Unhealthy", "#e74c3c", "High health risk"
+        return "Dañina", "#e74c3c", "Riesgo para la salud alto"
     else:
-        return "Very Unhealthy", "#8e44ad", "Very high health risk"
+        return "Muy Dañina", "#8e44ad", "Riesgo para la salud muy alto"
 
 def get_available_sensors():
-    """Get list of available sensors from data files"""
+    """Obtener lista de sensores disponibles desde archivos de datos"""
     data_dir = Path('piloto_data')
     if not data_dir.exists():
         return []
@@ -53,7 +53,7 @@ def get_available_sensors():
     return sorted(list(sensors))
 
 def get_date_range():
-    """Get available date range from data files"""
+    """Obtener rango de fechas disponible desde archivos de datos"""
     data_dir = Path('piloto_data')
     if not data_dir.exists():
         return None, None
@@ -62,9 +62,9 @@ def get_date_range():
     for file_path in data_dir.glob("*.dat"):
         if file_path.stat().st_size > 0:
             try:
-                # Extract date from filename (e.g., Piloto019-020625.dat)
+                # Extraer fecha del nombre del archivo (ej., Piloto019-020625.dat)
                 date_part = file_path.name.split('-')[1].replace('.dat', '')
-                # Convert DDMMYY to datetime
+                # Convertir DDMMYY a datetime
                 day = int(date_part[:2])
                 month = int(date_part[2:4])
                 year = 2000 + int(date_part[4:6])
@@ -79,55 +79,55 @@ def get_date_range():
     return min(dates), max(dates)
 
 def get_sensor_data(sensor_id, start_date=None, end_date=None):
-    """Get data for a specific sensor within date range"""
+    """Obtener datos para un sensor específico dentro del rango de fechas"""
     return get_sensor_data_processor(sensor_id, start_date, end_date)
 
 def create_time_series_plot():
-    """Create time series plot of MP1.0 levels"""
+    """Crear gráfico de series de tiempo de niveles de MP1.0"""
     current_data = get_current_data()
     
     if current_data.empty:
-        return go.Figure().add_annotation(text="No data available", 
+        return go.Figure().add_annotation(text="No hay datos disponibles", 
                                         xref="paper", yref="paper",
                                         x=0.5, y=0.5, showarrow=False)
     
-    # Get all available sensors and create traces for each
+    # Obtener todos los sensores disponibles y crear trazas para cada uno
     available_sensors = current_data['Sensor_ID'].unique()
     
     fig = go.Figure()
     colors = px.colors.qualitative.Set1
     
-    # Create a trace for each sensor
+    # Crear una traza para cada sensor
     for i, sensor_id in enumerate(sorted(available_sensors)):
-        # Get full data for this sensor
+        # Obtener datos completos para este sensor
         sensor_data = get_sensor_data(sensor_id)
         
         if not sensor_data.empty:
             fig.add_trace(go.Scatter(
-                x=sensor_data.index,  # datetime is the index
+                x=sensor_data.index,  # datetime es el índice
                 y=sensor_data['MP1'],
                 mode='lines',
                 name=f'Sensor {sensor_id}',
                 line=dict(color=colors[i % len(colors)]),
                 hovertemplate='<b>Sensor %{fullData.name}</b><br>' +
-                             'Time: %{x}<br>' +
+                             'Hora: %{x}<br>' +
                              'MP1.0: %{y:.1f} μg/m³<extra></extra>'
             ))
     
-    if fig.data:  # Only add guidelines if we have data
-        # Add WHO guideline lines
+    if fig.data:  # Solo agregar líneas de referencia si tenemos datos
+        # Agregar líneas de referencia OMS
         fig.add_hline(y=15, line_dash="dash", line_color="green", 
-                      annotation_text="WHO Good (≤15)")
+                      annotation_text="OMS Buena (≤15)")
         fig.add_hline(y=25, line_dash="dash", line_color="yellow", 
-                      annotation_text="WHO Moderate (≤25)")
+                      annotation_text="OMS Moderada (≤25)")
         fig.add_hline(y=35, line_dash="dash", line_color="orange", 
-                      annotation_text="WHO Unhealthy Sensitive (≤35)")
+                      annotation_text="OMS Dañina Sensibles (≤35)")
         fig.add_hline(y=75, line_dash="dash", line_color="red", 
-                      annotation_text="WHO Unhealthy (≤75)")
+                      annotation_text="OMS Dañina (≤75)")
     
     fig.update_layout(
-        title="MP1.0 Levels Over Time",
-        xaxis_title="Time",
+        title="Niveles de MP1.0 a lo Largo del Tiempo",
+        xaxis_title="Hora",
         yaxis_title="MP1.0 (μg/m³)",
         hovermode='x unified',
         showlegend=True,
@@ -137,49 +137,49 @@ def create_time_series_plot():
     return fig
 
 def create_sensor_specific_plot(sensor_id, start_date=None, end_date=None):
-    """Create detailed plot for a specific sensor"""
+    """Crear gráfico detallado para un sensor específico"""
     df = get_sensor_data(sensor_id, start_date, end_date)
     
     if df is None or len(df) == 0:
         return go.Figure().add_annotation(
-            text=f"No data available for Sensor {sensor_id}",
+            text=f"No hay datos disponibles para el Sensor {sensor_id}",
             xref="paper", yref="paper",
             x=0.5, y=0.5, showarrow=False
         )
     
     fig = go.Figure()
     
-    # Main time series
+    # Serie de tiempo principal
     fig.add_trace(go.Scatter(
-        x=df.index,  # datetime is the index
+        x=df.index,  # datetime es el índice
         y=df['MP1'],
         mode='lines+markers',
         name=f'Sensor {sensor_id}',
         line=dict(color='#3498db', width=2),
         marker=dict(size=4),
         hovertemplate='<b>Sensor %{fullData.name}</b><br>' +
-                     'Time: %{x}<br>' +
+                     'Hora: %{x}<br>' +
                      'MP1.0: %{y:.1f} μg/m³<extra></extra>'
     ))
     
-    # Add WHO guideline lines
+    # Agregar líneas de referencia OMS
     fig.add_hline(y=15, line_dash="dash", line_color="green", 
-                  annotation_text="WHO Good (≤15)")
+                  annotation_text="OMS Buena (≤15)")
     fig.add_hline(y=25, line_dash="dash", line_color="orange", 
-                  annotation_text="WHO Moderate (≤25)")
+                  annotation_text="OMS Moderada (≤25)")
     fig.add_hline(y=35, line_dash="dash", line_color="orange", 
-                  annotation_text="WHO Unhealthy Sensitive (≤35)")
+                  annotation_text="OMS Dañina Sensibles (≤35)")
     fig.add_hline(y=75, line_dash="dash", line_color="red", 
-                  annotation_text="WHO Unhealthy (≤75)")
+                  annotation_text="OMS Dañina (≤75)")
     
-    # Add average line
+    # Agregar línea de promedio
     avg_mp1 = df['MP1'].mean()
     fig.add_hline(y=avg_mp1, line_dash="dot", line_color="purple", 
-                  annotation_text=f"Average: {avg_mp1:.1f} μg/m³")
+                  annotation_text=f"Promedio: {avg_mp1:.1f} μg/m³")
     
     fig.update_layout(
-        title=f"Sensor {sensor_id} - Detailed MP1.0 Analysis",
-        xaxis_title="Time",
+        title=f"Sensor {sensor_id} - Análisis Detallado de MP1.0",
+        xaxis_title="Hora",
         yaxis_title="MP1.0 (μg/m³)",
         hovermode='x unified',
         showlegend=True,
@@ -189,132 +189,133 @@ def create_sensor_specific_plot(sensor_id, start_date=None, end_date=None):
     return fig
 
 def create_sensor_comparison_plot():
-    """Create bar chart comparing average MP1.0 levels by sensor"""
+    """Crear gráfico de barras comparando niveles promedio de MP1.0 por sensor"""
     current_data = get_current_data()
     
     if current_data.empty:
-        return go.Figure().add_annotation(text="No data available", 
+        return go.Figure().add_annotation(text="No hay datos disponibles", 
                                         xref="paper", yref="paper",
                                         x=0.5, y=0.5, showarrow=False)
     
-    # Prepare data for bar chart
-    sensor_ids = []
-    avg_values = []
-    colors = []
+    # Preparar datos para gráfico de barras
+    sensor_avg = current_data.groupby('Sensor_ID')['MP1'].mean().reset_index()
+    sensor_avg = sensor_avg.sort_values('MP1', ascending=False)
     
-    # Group by sensor and calculate averages
-    for sensor_id in current_data['Sensor_ID'].unique():
-        sensor_data = current_data[current_data['Sensor_ID'] == sensor_id]
-        avg_mp1 = sensor_data['MP1'].mean()
-        _, color, _ = get_air_quality_category(avg_mp1)
-        
-        sensor_ids.append(f'Sensor {sensor_id}')
-        avg_values.append(avg_mp1)
+    # Crear gráfico de barras
+    fig = go.Figure()
+    
+    # Asignar colores basados en categorías OMS
+    colors = []
+    for mp1_val in sensor_avg['MP1']:
+        category, color, _ = get_air_quality_category(mp1_val)
         colors.append(color)
     
-    # Sort by average value (highest first)
-    sorted_data = sorted(zip(sensor_ids, avg_values, colors), key=lambda x: x[1], reverse=True)
-    sensor_ids, avg_values, colors = zip(*sorted_data)
+    fig.add_trace(go.Bar(
+        x=sensor_avg['Sensor_ID'],
+        y=sensor_avg['MP1'],
+        marker_color=colors,
+        text=[f'{val:.1f}' for val in sensor_avg['MP1']],
+        textposition='outside',
+        hovertemplate='<b>Sensor %{x}</b><br>' +
+                     'MP1.0 Promedio: %{y:.1f} μg/m³<extra></extra>'
+    ))
     
-    fig = go.Figure(data=[
-        go.Bar(
-            x=list(sensor_ids),
-            y=list(avg_values),
-            marker_color=list(colors),
-            hovertemplate='<b>%{x}</b><br>' +
-                         'Average MP1.0: %{y:.1f} μg/m³<extra></extra>'
-        )
-    ])
-    
-    # Add WHO guideline lines
-    fig.add_hline(y=15, line_dash="dash", line_color="green", opacity=0.7)
-    fig.add_hline(y=25, line_dash="dash", line_color="yellow", opacity=0.7)
-    fig.add_hline(y=35, line_dash="dash", line_color="orange", opacity=0.7)
-    fig.add_hline(y=75, line_dash="dash", line_color="red", opacity=0.7)
+    # Agregar líneas de referencia OMS
+    fig.add_hline(y=15, line_dash="dash", line_color="green", 
+                  annotation_text="OMS Buena")
+    fig.add_hline(y=25, line_dash="dash", line_color="orange", 
+                  annotation_text="OMS Moderada")
+    fig.add_hline(y=35, line_dash="dash", line_color="red", 
+                  annotation_text="OMS Dañina Sensibles")
+    fig.add_hline(y=75, line_dash="dash", line_color="darkred", 
+                  annotation_text="OMS Dañina")
     
     fig.update_layout(
-        title="Average MP1.0 Levels by Sensor",
-        xaxis_title="Sensor",
-        yaxis_title="Average MP1.0 (μg/m³)",
-        height=400,
-        showlegend=False
+        title="Comparación de Niveles Promedio de MP1.0 por Sensor",
+        xaxis_title="ID del Sensor",
+        yaxis_title="MP1.0 Promedio (μg/m³)",
+        showlegend=False,
+        height=400
     )
     
     return fig
 
 def get_dashboard_stats():
-    """Get summary statistics for dashboard cards"""
+    """Obtener estadísticas para el panel general"""
     try:
         current_data = get_current_data()
         
         if current_data.empty:
             return {
-                'total_sensors': 0,
-                'avg_mp1': 0,
-                'max_mp1': 0,
-                'total_points': 0,
-                'overall_category': 'No Data',
-                'overall_color': '#7f8c8d',
-                'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'status': 'no_data'
+                'status': 'no_data',
+                'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             }
         
-        overall_avg = current_data['MP1'].mean()
-        overall_category, overall_color, _ = get_air_quality_category(overall_avg)
-        
-        return {
+        stats = {
+            'status': 'success',
             'total_sensors': len(current_data['Sensor_ID'].unique()),
-            'avg_mp1': round(overall_avg, 1),
-            'max_mp1': round(current_data['MP1'].max(), 1),
+            'avg_mp1': f"{current_data['MP1'].mean():.1f}",
+            'max_mp1': f"{current_data['MP1'].max():.1f}",
+            'min_mp1': f"{current_data['MP1'].min():.1f}",
             'total_points': len(current_data),
-            'overall_category': overall_category,
-            'overall_color': overall_color,
-            'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'status': 'ok'
+            'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
+        
+        return stats
+        
     except Exception as e:
-        print(f"Error in get_dashboard_stats: {e}")
+        print(f"Error obteniendo estadísticas del panel: {e}")
         return {
-            'total_sensors': 0,
-            'avg_mp1': 0,
-            'max_mp1': 0,
-            'total_points': 0,
-            'overall_category': 'Error',
-            'overall_color': '#e74c3c',
-            'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'status': 'error'
+            'status': 'error',
+            'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
 
 def get_sensor_stats(sensor_id, start_date=None, end_date=None):
-    """Get detailed statistics for a specific sensor"""
-    df = get_sensor_data(sensor_id, start_date, end_date)
-    
-    if df is None or len(df) == 0:
-        return None
-    
-    stats = {
-        'mean_mp1': df['MP1'].mean(),
-        'max_mp1': df['MP1'].max(),
-        'min_mp1': df['MP1'].min(),
-        'std_mp1': df['MP1'].std(),
-        'records': len(df),
-        'date_range': f"{df.index.min().strftime('%Y-%m-%d %H:%M')} to {df.index.max().strftime('%Y-%m-%d %H:%M')}",
-        'hours_covered': (df.index.max() - df.index.min()).total_seconds() / 3600
-    }
-    
-    return stats
+    """Obtener estadísticas detalladas para un sensor específico"""
+    try:
+        df = get_sensor_data(sensor_id, start_date, end_date)
+        
+        if df is None or len(df) == 0:
+            return {
+                'status': 'no_data',
+                'sensor_id': sensor_id,
+                'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+        
+        stats = {
+            'status': 'success',
+            'sensor_id': sensor_id,
+            'avg_mp1': df['MP1'].mean(),
+            'max_mp1': df['MP1'].max(),
+            'min_mp1': df['MP1'].min(),
+            'std_mp1': df['MP1'].std(),
+            'data_points': len(df),
+            'date_range': f"{df.index.min().strftime('%Y-%m-%d')} a {df.index.max().strftime('%Y-%m-%d')}",
+            'hours_covered': (df.index.max() - df.index.min()).total_seconds() / 3600 if len(df) > 1 else 0,
+            'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        
+        return stats
+        
+    except Exception as e:
+        print(f"Error obteniendo estadísticas del sensor {sensor_id}: {e}")
+        return {
+            'status': 'error',
+            'sensor_id': sensor_id,
+            'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
 
-# Get available options for dropdowns
+# Obtener sensores y fechas disponibles
 available_sensors = get_available_sensors()
 min_date, max_date = get_date_range()
 
-# Define the layout with tabs
+# Definir el diseño con pestañas
 app.layout = html.Div([
-    # Header
+    # Encabezado
     html.Div([
-        html.H1("USACH Air Quality Monitor", 
+        html.H1("Monitor de Calidad del Aire USACH", 
                 style={'textAlign': 'center', 'color': 'white', 'margin': '0'}),
-        html.P("Real-time Environmental Data Dashboard", 
+        html.P("Panel de Datos Ambientales en Tiempo Real", 
                style={'textAlign': 'center', 'color': 'white', 'opacity': '0.8', 'margin': '10px 0 0 0'})
     ], style={
         'background': 'linear-gradient(135deg, #2c3e50 0%, #34495e 100%)',
@@ -322,18 +323,18 @@ app.layout = html.Div([
         'marginBottom': '0'
     }),
     
-    # Auto-refresh interval
+    # Intervalo de auto-actualización
     dcc.Interval(
         id='interval-component',
-        interval=10*60*1000,  # 10 minutes in milliseconds
+        interval=10*60*1000,  # 10 minutos en milisegundos
         n_intervals=0
     ),
     
-    # Main content with tabs
+    # Contenido principal con pestañas
     html.Div([
         dcc.Tabs(id="tabs", value="tab-1", children=[
-            dcc.Tab(label="General Overview", value="tab-1", style={'padding': '10px'}),
-            dcc.Tab(label="Specific Sensor Analysis", value="tab-2", style={'padding': '10px'})
+            dcc.Tab(label="Resumen General", value="tab-1", style={'padding': '10px'}),
+            dcc.Tab(label="Análisis de Sensor Específico", value="tab-2", style={'padding': '10px'})
         ], style={'marginBottom': '20px'}),
         
         html.Div(id='tabs-content')
@@ -342,12 +343,12 @@ app.layout = html.Div([
 ], style={'fontFamily': 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif'})
 
 def render_general_tab():
-    """Render the general health overview tab"""
+    """Renderizar la pestaña de resumen general"""
     return html.Div([
-        # Status cards
+        # Tarjetas de estado
         html.Div(id='status-cards', style={'margin': '20px 0'}),
         
-        # Charts
+        # Gráficos
         html.Div([
             html.Div([
                 dcc.Graph(id='time-series-plot')
@@ -358,42 +359,42 @@ def render_general_tab():
             ], style={'width': '100%', 'margin': '20px 0'})
         ]),
         
-        # Sensor details
+        # Detalles de sensores
         html.Div(id='sensor-details', style={'margin': '20px 0'}),
         
-        # Footer
+        # Pie de página
         html.Div([
             html.P(id='last-update', style={'textAlign': 'center', 'color': '#7f8c8d', 'margin': '10px 0'}),
-            html.P("Dashboard auto-refreshes every 10 minutes", 
+            html.P("El panel se actualiza automáticamente cada 10 minutos", 
                    style={'textAlign': 'center', 'color': '#7f8c8d', 'fontSize': '0.9em', 'margin': '5px 0'})
         ], style={'background': '#ecf0f1', 'padding': '15px', 'marginTop': '30px'})
     ])
 
 def render_specific_tab():
-    """Render the specific sensor analysis tab"""
-    # Create sensor options
+    """Renderizar la pestaña de análisis de sensor específico"""
+    # Crear opciones de sensores
     sensor_options = [{'label': f'Sensor {s}', 'value': s} for s in available_sensors]
     
-    # Create date picker defaults
+    # Crear valores predeterminados del selector de fechas
     default_start = min_date if min_date else datetime.now() - timedelta(days=7)
     default_end = max_date if max_date else datetime.now()
     
     return html.Div([
-        # Controls
+        # Controles
         html.Div([
             html.Div([
-                html.Label("Select Sensor:", style={'fontWeight': 'bold', 'marginBottom': '5px', 'display': 'block'}),
+                html.Label("Seleccionar Sensor:", style={'fontWeight': 'bold', 'marginBottom': '5px', 'display': 'block'}),
                 dcc.Dropdown(
                     id='sensor-dropdown',
                     options=sensor_options,
                     value=available_sensors[0] if available_sensors else None,
-                    placeholder="Choose a sensor...",
+                    placeholder="Elegir un sensor...",
                     style={'marginBottom': '20px'}
                 )
             ], style={'width': '48%', 'display': 'inline-block', 'verticalAlign': 'top'}),
             
             html.Div([
-                html.Label("Date Range:", style={'fontWeight': 'bold', 'marginBottom': '5px', 'display': 'block'}),
+                html.Label("Rango de Fechas:", style={'fontWeight': 'bold', 'marginBottom': '5px', 'display': 'block'}),
                 dcc.DatePickerRange(
                     id='date-picker-range',
                     start_date=default_start,
@@ -404,23 +405,23 @@ def render_specific_tab():
             ], style={'width': '48%', 'float': 'right', 'display': 'inline-block'})
         ], style={'background': '#f8f9fa', 'padding': '20px', 'borderRadius': '10px', 'marginBottom': '20px'}),
         
-        # Statistics cards
+        # Tarjetas de estadísticas
         html.Div(id='sensor-stats-cards', style={'margin': '20px 0'}),
         
-        # Detailed plot
+        # Gráfico detallado
         html.Div([
             dcc.Graph(id='sensor-detailed-plot')
         ], style={'width': '100%', 'margin': '20px 0'}),
         
-        # Footer
+        # Pie de página
         html.Div([
             html.P(id='sensor-last-update', style={'textAlign': 'center', 'color': '#7f8c8d', 'margin': '10px 0'}),
-            html.P("Use the controls above to analyze specific sensors over custom time periods", 
+            html.P("Use los controles superiores para analizar sensores específicos en períodos de tiempo personalizados", 
                    style={'textAlign': 'center', 'color': '#7f8c8d', 'fontSize': '0.9em', 'margin': '5px 0'})
         ], style={'background': '#ecf0f1', 'padding': '15px', 'marginTop': '30px'})
     ])
 
-# Callback for tab content
+# Callback para contenido de pestañas
 @app.callback(Output('tabs-content', 'children'),
               Input('tabs', 'value'))
 def render_content(tab):
@@ -429,7 +430,7 @@ def render_content(tab):
     elif tab == 'tab-2':
         return render_specific_tab()
 
-# Callbacks for general tab updates
+# Callbacks para actualizaciones de pestaña general
 @app.callback(
     [Output('status-cards', 'children'),
      Output('time-series-plot', 'figure'),
@@ -442,13 +443,13 @@ def update_general_dashboard(n):
     try:
         stats = get_dashboard_stats()
         
-        # Handle no data case
+        # Manejar caso sin datos
         if stats.get('status') == 'no_data':
-            # Status cards for no data
+            # Tarjetas de estado para sin datos
             status_cards = html.Div([
                 html.Div([
-                    html.H2("No Data Available", style={'color': '#e74c3c', 'textAlign': 'center'}),
-                    html.P("Run 'python fetch_piloto_files.py' to download data", 
+                    html.H2("No Hay Datos Disponibles", style={'color': '#e74c3c', 'textAlign': 'center'}),
+                    html.P("Ejecute 'python fetch_piloto_files.py' para descargar datos", 
                            style={'textAlign': 'center', 'color': '#7f8c8d'})
                 ], style={
                     'background': '#ecf0f1',
@@ -459,32 +460,32 @@ def update_general_dashboard(n):
                 })
             ])
             
-            # Empty plots
+            # Gráficos vacíos
             empty_fig = go.Figure().add_annotation(
-                text="No data available<br>Run 'python fetch_piloto_files.py' to download data",
+                text="No hay datos disponibles<br>Ejecute 'python fetch_piloto_files.py' para descargar datos",
                 xref="paper", yref="paper",
                 x=0.5, y=0.5, showarrow=False,
                 font=dict(size=16, color="#7f8c8d")
             )
             empty_fig.update_layout(
-                title="Waiting for Data...",
+                title="Esperando Datos...",
                 height=400
             )
             
             sensor_details = html.Div([
-                html.H2("Sensor Details", style={'color': '#2c3e50'}),
-                html.P("No sensor data available.", style={'color': '#7f8c8d', 'fontStyle': 'italic'})
+                html.H2("Detalles de Sensores", style={'color': '#2c3e50'}),
+                html.P("No hay datos de sensores disponibles.", style={'color': '#7f8c8d', 'fontStyle': 'italic'})
             ])
             
-            last_update = f"Last checked: {stats['last_update']}"
+            last_update = f"Última verificación: {stats['last_update']}"
             
             return status_cards, empty_fig, empty_fig, sensor_details, last_update
         
-        # Handle error case
+        # Manejar caso de error
         if stats.get('status') == 'error':
             error_msg = html.Div([
-                html.H2("Data Error", style={'color': '#e74c3c', 'textAlign': 'center'}),
-                html.P("There was an error processing the air quality data. Please check the logs.", 
+                html.H2("Error de Datos", style={'color': '#e74c3c', 'textAlign': 'center'}),
+                html.P("Hubo un error procesando los datos de calidad del aire. Por favor revise los registros.", 
                        style={'textAlign': 'center', 'color': '#7f8c8d'})
             ], style={
                 'background': '#f8d7da',
@@ -496,36 +497,36 @@ def update_general_dashboard(n):
             })
             
             empty_fig = go.Figure().add_annotation(
-                text="Error processing data",
+                text="Error procesando datos",
                 xref="paper", yref="paper",
                 x=0.5, y=0.5, showarrow=False,
                 font=dict(size=16, color="#e74c3c")
             )
             
-            return error_msg, empty_fig, empty_fig, error_msg, f"Error at: {stats['last_update']}"
+            return error_msg, empty_fig, empty_fig, error_msg, f"Error en: {stats['last_update']}"
         
-        # Normal case with data
-        # Status cards
+        # Caso normal con datos
+        # Tarjetas de estado
         status_cards = html.Div([
             html.Div([
                 html.Div([
                     html.H2(str(stats['total_sensors']), style={'margin': '0', 'color': '#2c3e50'}),
-                    html.P("Active Sensors", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
+                    html.P("Sensores Activos", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
                 ], className='stat-card'),
                 
                 html.Div([
                     html.H2(str(stats['avg_mp1']), style={'margin': '0', 'color': '#2c3e50'}),
-                    html.P("Avg MP1.0 (μg/m³)", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
+                    html.P("Prom MP1.0 (μg/m³)", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
                 ], className='stat-card'),
                 
                 html.Div([
                     html.H2(str(stats['max_mp1']), style={'margin': '0', 'color': '#2c3e50'}),
-                    html.P("Max MP1.0 (μg/m³)", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
+                    html.P("Máx MP1.0 (μg/m³)", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
                 ], className='stat-card'),
                 
                 html.Div([
                     html.H2(str(stats['total_points']), style={'margin': '0', 'color': '#2c3e50'}),
-                    html.P("Total Data Points", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
+                    html.P("Total Puntos de Datos", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
                 ], className='stat-card')
             ], style={
                 'display': 'grid',
@@ -535,109 +536,64 @@ def update_general_dashboard(n):
             })
         ])
         
-        # Create plots
+        # Crear gráficos
         time_series_fig = create_time_series_plot()
         comparison_fig = create_sensor_comparison_plot()
         
-        # Sensor details
+        # Crear detalles de sensores
         current_data = get_current_data()
-        sensor_details = html.Div()
-        
         if not current_data.empty:
             sensor_cards = []
-            
-            # Group data by sensor and calculate statistics
-            for sensor_id in current_data['Sensor_ID'].unique():
+            for sensor_id in sorted(current_data['Sensor_ID'].unique()):
                 sensor_data = current_data[current_data['Sensor_ID'] == sensor_id]
-                avg_mp1 = sensor_data['MP1'].mean()
-                max_mp1 = sensor_data['MP1'].max()
-                records = len(sensor_data)
+                current_mp1 = sensor_data['MP1'].iloc[0] if not sensor_data.empty else 0
+                category, color, risk = get_air_quality_category(current_mp1)
                 
-                category, color, risk = get_air_quality_category(avg_mp1)
-                
-                card = html.Div([
-                    html.Div([
-                        html.H4(f"Sensor {sensor_id}", style={'color': '#2c3e50', 'margin': '0'}),
-                        html.Span(category, style={
-                            'background': color,
-                            'color': 'white',
-                            'padding': '5px 15px',
-                            'borderRadius': '20px',
-                            'fontSize': '0.9em',
-                            'fontWeight': 'bold'
-                        })
-                    ], style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center', 'marginBottom': '15px'}),
-                    
-                    html.Div([
-                        html.Div([
-                            html.Strong(f"{avg_mp1:.1f}"),
-                            html.Br(),
-                            html.Small("Avg MP1.0")
-                        ], style={'textAlign': 'center', 'padding': '10px', 'background': '#f8f9fa', 'borderRadius': '5px'}),
-                        
-                        html.Div([
-                            html.Strong(f"{max_mp1:.1f}"),
-                            html.Br(),
-                            html.Small("Max MP1.0")
-                        ], style={'textAlign': 'center', 'padding': '10px', 'background': '#f8f9fa', 'borderRadius': '5px'}),
-                        
-                        html.Div([
-                            html.Strong(f"{records}"),
-                            html.Br(),
-                            html.Small("Data Points")
-                        ], style={'textAlign': 'center', 'padding': '10px', 'background': '#f8f9fa', 'borderRadius': '5px'}),
-                        
-                        html.Div([
-                            html.Strong(risk),
-                            html.Br(),
-                            html.Small("Health Risk")
-                        ], style={'textAlign': 'center', 'padding': '10px', 'background': '#f8f9fa', 'borderRadius': '5px'})
-                    ], style={'display': 'grid', 'gridTemplateColumns': '1fr 1fr 1fr 1fr', 'gap': '10px'})
-                    
+                sensor_card = html.Div([
+                    html.H4(f"Sensor {sensor_id}", style={'margin': '0 0 10px 0', 'color': '#2c3e50'}),
+                    html.P(f"MP1.0: {current_mp1:.1f} μg/m³", style={'margin': '5px 0', 'fontSize': '1.1em', 'fontWeight': 'bold'}),
+                    html.P(f"Estado: {category}", style={'margin': '5px 0', 'color': color, 'fontWeight': 'bold'}),
+                    html.P(f"Evaluación: {risk}", style={'margin': '5px 0', 'color': '#7f8c8d', 'fontSize': '0.9em'})
                 ], style={
-                    'border': '1px solid #ddd',
-                    'borderRadius': '10px',
-                    'padding': '20px',
                     'background': 'white',
-                    'boxShadow': '0 2px 5px rgba(0,0,0,0.1)',
-                    'margin': '10px'
+                    'padding': '15px',
+                    'borderRadius': '8px',
+                    'border': f'2px solid {color}',
+                    'margin': '10px 0'
                 })
-                
-                sensor_cards.append(card)
+                sensor_cards.append(sensor_card)
             
             sensor_details = html.Div([
-                html.H2("Sensor Details", style={'color': '#2c3e50'}),
+                html.H2("Detalles de Sensores", style={'color': '#2c3e50', 'marginBottom': '20px'}),
                 html.Div(sensor_cards, style={
                     'display': 'grid',
-                    'gridTemplateColumns': 'repeat(auto-fill, minmax(400px, 1fr))',
-                    'gap': '20px'
+                    'gridTemplateColumns': 'repeat(auto-fit, minmax(250px, 1fr))',
+                    'gap': '15px'
                 })
             ])
+        else:
+            sensor_details = html.Div([
+                html.H2("Detalles de Sensores", style={'color': '#2c3e50'}),
+                html.P("No hay datos de sensores disponibles.", style={'color': '#7f8c8d', 'fontStyle': 'italic'})
+            ])
         
-        last_update = f"Last updated: {stats['last_update']}"
+        last_update = f"Última actualización: {stats['last_update']}"
         
         return status_cards, time_series_fig, comparison_fig, sensor_details, last_update
     
     except Exception as e:
-        print(f"Error in update_general_dashboard callback: {e}")
+        print(f"Error en callback update_general_dashboard: {e}")
         import traceback
         traceback.print_exc()
         
-        # Return error state
+        # Retornar estado de error
         error_msg = html.Div([
-            html.H2("Dashboard Error", style={'color': '#e74c3c', 'textAlign': 'center'}),
+            html.H2("Error del Panel", style={'color': '#e74c3c', 'textAlign': 'center'}),
             html.P(f"Error: {str(e)}", style={'textAlign': 'center', 'color': '#7f8c8d'})
-        ], style={
-            'background': '#f8d7da',
-            'border': '1px solid #f5c6cb',
-            'color': '#721c24',
-            'padding': '20px',
-            'borderRadius': '5px',
-            'textAlign': 'center'
-        })
+        ])
         
         empty_fig = go.Figure().add_annotation(
-            text=f"Dashboard Error: {str(e)}",
+            text=f"Error: {str(e)}",
             xref="paper", yref="paper",
             x=0.5, y=0.5, showarrow=False,
             font=dict(size=14, color="#e74c3c")
@@ -645,9 +601,9 @@ def update_general_dashboard(n):
         
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
-        return error_msg, empty_fig, empty_fig, error_msg, f"Error at: {current_time}"
+        return error_msg, empty_fig, empty_fig, error_msg, f"Error en: {current_time}"
 
-# Callback for sensor-specific analysis
+# Callbacks para análisis de sensor específico
 @app.callback(
     [Output('sensor-dropdown', 'options'),
      Output('sensor-dropdown', 'value'),
@@ -663,102 +619,102 @@ def update_sensor_analysis(n, selected_sensor, start_date, end_date):
     try:
         current_data = get_current_data()
         
-        # Get available sensors for dropdown
+        # Obtener sensores disponibles para el dropdown
         if not current_data.empty:
             sensor_options = [{'label': f'Sensor {sid}', 'value': sid} 
                             for sid in sorted(current_data['Sensor_ID'].unique())]
             
-            # Default to first sensor if none selected
+            # Predeterminar al primer sensor si no hay ninguno seleccionado
             if not selected_sensor:
                 selected_sensor = sorted(current_data['Sensor_ID'].unique())[0]
         else:
             sensor_options = []
             selected_sensor = None
         
-        # Handle no sensor selected or no data
+        # Manejar sin sensor seleccionado o sin datos
         if not selected_sensor or current_data.empty:
             empty_stats = html.Div([
-                html.H3("No Data Available", style={'textAlign': 'center', 'color': '#7f8c8d'}),
-                html.P("Select a sensor or check if data is available.", 
+                html.H3("No Hay Datos Disponibles", style={'textAlign': 'center', 'color': '#7f8c8d'}),
+                html.P("Seleccione un sensor o verifique si hay datos disponibles.", 
                        style={'textAlign': 'center', 'color': '#7f8c8d'})
             ])
             
             empty_fig = go.Figure().add_annotation(
-                text="No sensor data available",
+                text="No hay datos de sensores disponibles",
                 xref="paper", yref="paper",
                 x=0.5, y=0.5, showarrow=False,
                 font=dict(size=16, color="#7f8c8d")
             )
-            empty_fig.update_layout(title="Select a Sensor", height=500)
+            empty_fig.update_layout(title="Seleccione un Sensor", height=500)
             
             current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            return sensor_options, selected_sensor, empty_stats, empty_fig, f"Last checked: {current_time}"
+            return sensor_options, selected_sensor, empty_stats, empty_fig, f"Última verificación: {current_time}"
         
-        # Get sensor data using the modular processor
+        # Obtener datos del sensor usando el procesador modular
         sensor_data = get_sensor_data(selected_sensor, start_date, end_date)
         
         if sensor_data.empty:
             empty_stats = html.Div([
-                html.H3("No Data in Selected Range", style={'textAlign': 'center', 'color': '#7f8c8d'}),
-                html.P("Try selecting a different date range.", 
+                html.H3("No Hay Datos en el Rango Seleccionado", style={'textAlign': 'center', 'color': '#7f8c8d'}),
+                html.P("Intente seleccionar un rango de fechas diferente.", 
                        style={'textAlign': 'center', 'color': '#7f8c8d'})
             ])
             
             empty_fig = go.Figure().add_annotation(
-                text="No data in selected date range",
+                text="No hay datos en el rango de fechas seleccionado",
                 xref="paper", yref="paper",
                 x=0.5, y=0.5, showarrow=False,
                 font=dict(size=16, color="#7f8c8d")
             )
-            empty_fig.update_layout(title=f"Sensor {selected_sensor} - No Data", height=500)
+            empty_fig.update_layout(title=f"Sensor {selected_sensor} - Sin Datos", height=500)
             
             current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            return sensor_options, selected_sensor, empty_stats, empty_fig, f"Last checked: {current_time}"
+            return sensor_options, selected_sensor, empty_stats, empty_fig, f"Última verificación: {current_time}"
         
-        # Calculate statistics
+        # Calcular estadísticas
         avg_mp1 = sensor_data['MP1'].mean()
         max_mp1 = sensor_data['MP1'].max()
         min_mp1 = sensor_data['MP1'].min()
         std_mp1 = sensor_data['MP1'].std()
         data_points = len(sensor_data)
         
-        # Calculate hours of data (approximate)
+        # Calcular horas de datos (aproximado)
         if len(sensor_data) > 1:
             time_span = sensor_data.index.max() - sensor_data.index.min()
             hours_of_data = time_span.total_seconds() / 3600
         else:
             hours_of_data = 0
         
-        # Create statistics cards
+        # Crear tarjetas de estadísticas
         stats_cards = html.Div([
             html.Div([
                 html.H3(f"{avg_mp1:.1f}", style={'margin': '0', 'color': '#2c3e50'}),
-                html.P("Average MP1.0 (μg/m³)", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
+                html.P("Promedio MP1.0 (μg/m³)", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
             ], className='stat-card'),
             
             html.Div([
                 html.H3(f"{max_mp1:.1f}", style={'margin': '0', 'color': '#e74c3c'}),
-                html.P("Maximum MP1.0 (μg/m³)", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
+                html.P("Máximo MP1.0 (μg/m³)", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
             ], className='stat-card'),
             
             html.Div([
                 html.H3(f"{min_mp1:.1f}", style={'margin': '0', 'color': '#27ae60'}),
-                html.P("Minimum MP1.0 (μg/m³)", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
+                html.P("Mínimo MP1.0 (μg/m³)", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
             ], className='stat-card'),
             
             html.Div([
                 html.H3(f"{std_mp1:.1f}", style={'margin': '0', 'color': '#f39c12'}),
-                html.P("Std Deviation", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
+                html.P("Desviación Estándar", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
             ], className='stat-card'),
             
             html.Div([
                 html.H3(f"{data_points:,}", style={'margin': '0', 'color': '#3498db'}),
-                html.P("Data Points", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
+                html.P("Puntos de Datos", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
             ], className='stat-card'),
             
             html.Div([
                 html.H3(f"{hours_of_data:.1f}", style={'margin': '0', 'color': '#9b59b6'}),
-                html.P("Hours of Data", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
+                html.P("Horas de Datos", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
             ], className='stat-card')
         ], style={
             'display': 'grid',
@@ -767,11 +723,11 @@ def update_sensor_analysis(n, selected_sensor, start_date, end_date):
             'margin': '20px 0'
         })
         
-        # Create detailed plot
+        # Crear gráfico detallado
         fig = go.Figure()
         
         fig.add_trace(go.Scatter(
-            x=sensor_data.index,  # datetime is the index
+            x=sensor_data.index,  # datetime es el índice
             y=sensor_data['MP1'],
             mode='lines+markers',
             name=f'Sensor {selected_sensor}',
@@ -779,18 +735,18 @@ def update_sensor_analysis(n, selected_sensor, start_date, end_date):
             marker=dict(size=4)
         ))
         
-        # Add average line
+        # Agregar línea de promedio
         fig.add_hline(
             y=avg_mp1,
             line_dash="dash",
             line_color="red",
-            annotation_text=f"Average: {avg_mp1:.1f} μg/m³"
+            annotation_text=f"Promedio: {avg_mp1:.1f} μg/m³"
         )
         
         fig.update_layout(
-            title=f'Detailed Analysis - Sensor {selected_sensor}',
-            xaxis_title='Time',
-            yaxis_title='MP1.0 Particulate Matter (μg/m³)',
+            title=f'Análisis Detallado - Sensor {selected_sensor}',
+            xaxis_title='Hora',
+            yaxis_title='Material Particulado MP1.0 (μg/m³)',
             height=500,
             hovermode='x unified',
             showlegend=True,
@@ -798,18 +754,18 @@ def update_sensor_analysis(n, selected_sensor, start_date, end_date):
         )
         
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        last_update = f"Last updated: {current_time}"
+        last_update = f"Última actualización: {current_time}"
         
         return sensor_options, selected_sensor, stats_cards, fig, last_update
     
     except Exception as e:
-        print(f"Error in update_sensor_analysis callback: {e}")
+        print(f"Error en callback update_sensor_analysis: {e}")
         import traceback
         traceback.print_exc()
         
-        # Return error state
+        # Retornar estado de error
         error_msg = html.Div([
-            html.H3("Analysis Error", style={'color': '#e74c3c', 'textAlign': 'center'}),
+            html.H3("Error de Análisis", style={'color': '#e74c3c', 'textAlign': 'center'}),
             html.P(f"Error: {str(e)}", style={'textAlign': 'center', 'color': '#7f8c8d'})
         ])
         
@@ -822,9 +778,9 @@ def update_sensor_analysis(n, selected_sensor, start_date, end_date):
         
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
-        return [], None, error_msg, empty_fig, f"Error at: {current_time}"
+        return [], None, error_msg, empty_fig, f"Error en: {current_time}"
 
-# Add CSS styles
+# CSS personalizado
 app.index_string = '''
 <!DOCTYPE html>
 <html>
@@ -838,11 +794,14 @@ app.index_string = '''
                 background: white;
                 padding: 20px;
                 border-radius: 10px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
                 text-align: center;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                border-left: 4px solid #3498db;
             }
-            .tab-content {
-                padding: 20px;
+            .stat-card:hover {
+                box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+                transform: translateY(-2px);
+                transition: all 0.3s ease;
             }
         </style>
     </head>
@@ -858,15 +817,15 @@ app.index_string = '''
 '''
 
 if __name__ == '__main__':
-    print("Starting USACH Air Quality Dash Dashboard...")
-    print("Dashboard will be available at: http://localhost:8050")
-    print("Tip: Run 'python fetch_piloto_files.py' first to ensure you have data!")
-    print("Dashboard auto-refreshes every 10 minutes")
-    print("Features:")
-    print("   - General Health Overview (Tab 1)")
-    print("   - Specific Sensor Analysis (Tab 2)")
+    print("Iniciando Panel de Control de Calidad del Aire USACH...")
+    print("El panel estará disponible en: http://localhost:8050")
+    print("Consejo: ¡Ejecute 'python fetch_piloto_files.py' primero para asegurar que tenga datos!")
+    print("El panel se actualiza automáticamente cada 10 minutos")
+    print("Características:")
+    print("   - Resumen General (Pestaña 1)")
+    print("   - Análisis de Sensor Específico (Pestaña 2)")
     print()
-    print("Press Ctrl+C to stop the server")
+    print("Presione Ctrl+C para detener el servidor")
     print("-" * 60)
     
     app.run(debug=True, host='0.0.0.0', port=8050)
