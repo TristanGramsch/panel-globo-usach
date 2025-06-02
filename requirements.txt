@@ -1,0 +1,10 @@
+requests>=2.31.0
+urllib3>=1.26.0
+certifi>=2020.12.5
+chardet>=4.0.0
+idna>=2.10
+python-dateutil>=2.8.1
+pandas>=2.0.0
+matplotlib>=3.7.0
+pathlib2>=2.3.0; python_version < '3.4'
+flask>=2.3.0 
