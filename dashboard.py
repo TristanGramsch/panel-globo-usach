@@ -38,6 +38,20 @@ def get_air_quality_category(avg_mp1):
     else:
         return "Muy Dañina", "#8e44ad", "Riesgo para la salud muy alto"
 
+def get_sensor_color(sensor_id, available_sensors):
+    """Obtener color consistente para un sensor basado en su posición en la lista de sensores disponibles"""
+    colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#34495e', '#e67e22', '#95a5a6', '#f1c40f', '#8e44ad']
+    
+    # Convertir a lista ordenada para consistencia
+    sorted_sensors = sorted(available_sensors)
+    
+    try:
+        sensor_index = sorted_sensors.index(sensor_id)
+        return colors[sensor_index % len(colors)]
+    except ValueError:
+        # Si el sensor no está en la lista, usar el primer color
+        return colors[0]
+
 def get_available_sensors():
     """Obtener lista de sensores disponibles desde archivos de datos"""
     data_dir = Path('piloto_data')
@@ -91,20 +105,20 @@ def create_time_series_plot():
             return create_empty_plot("No hay datos disponibles")
         
         fig = go.Figure()
-        colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#34495e', '#e67e22', '#95a5a6', '#f1c40f', '#8e44ad']
         
         # Obtener datos para cada sensor disponible
         available_sensors = current_data['Sensor_ID'].unique()
         
-        for i, sensor_id in enumerate(available_sensors):
+        for sensor_id in sorted(available_sensors):
             sensor_data = get_sensor_data_processor(sensor_id)
             if not sensor_data.empty:
+                sensor_color = get_sensor_color(sensor_id, available_sensors)
                 fig.add_trace(go.Scatter(
                     x=sensor_data.index,
                     y=sensor_data['MP1'],
                     mode='lines',
                     name=f'Sensor {sensor_id}',
-                    line=dict(color=colors[i % len(colors)]),
+                    line=dict(color=sensor_color),
                     hovertemplate='<b>Sensor %{fullData.name}</b><br>' +
                                   'Fecha: %{x}<br>' +
                                   'MP1.0: %{y:.1f} μg/m³<extra></extra>'
@@ -207,11 +221,17 @@ def create_sensor_comparison_plot():
         sensor_averages = current_data.groupby('Sensor_ID')['MP1'].mean().reset_index()
         sensor_averages = sensor_averages.sort_values('MP1', ascending=False)
         
+        # Obtener sensores disponibles para colores consistentes
+        available_sensors = current_data['Sensor_ID'].unique()
+        
+        # Crear lista de colores para cada sensor en el gráfico
+        bar_colors = [get_sensor_color(sensor_id, available_sensors) for sensor_id in sensor_averages['Sensor_ID']]
+        
         fig = go.Figure(data=[
             go.Bar(
                 x=sensor_averages['Sensor_ID'],
                 y=sensor_averages['MP1'],
-                marker_color='#3498db',
+                marker_color=bar_colors,
                 hovertemplate='<b>Sensor %{x}</b><br>' +
                               'Promedio MP1.0: %{y:.1f} μg/m³<extra></extra>'
             )
