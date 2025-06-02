@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-Visualization script for air quality data analysis
+USACH Environmental Monitoring - Air Quality Visualization
+Visualization functions for air quality data
 """
 
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from pathlib import Path
-from analyze_mp1_data import parse_piloto_file
+from data.processors import parse_piloto_file
 import numpy as np
 
 def create_air_quality_plots():

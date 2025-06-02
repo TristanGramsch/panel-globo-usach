@@ -13,7 +13,12 @@ import os
 import glob
 from datetime import datetime, timedelta
 from pathlib import Path
-from analyze_mp1_data import analyze_current_data, parse_piloto_file
+import logging
+
+# Import from our modular structure
+from data.processors import get_current_data, parse_piloto_file, get_sensor_data as get_sensor_data_processor
+from config.settings import WHO_GUIDELINES
+from utils.helpers import get_air_quality_category
 
 # Initialize the Dash app
 app = dash.Dash(__name__)
@@ -73,147 +78,52 @@ def get_date_range():
     
     return min(dates), max(dates)
 
-def get_current_data():
-    """Get current air quality data for dashboard"""
-    try:
-        # Try to import the analysis function
-        from analyze_mp1_data import analyze_current_data
-        
-        result = analyze_current_data()
-        if result is None:
-            print("Warning: analyze_current_data returned None")
-            return None, None
-        
-        combined_df, sensor_summaries = result
-        
-        # Validate the data
-        if combined_df is None or len(combined_df) == 0:
-            print("Warning: No data in combined_df")
-            return None, None
-            
-        if sensor_summaries is None or len(sensor_summaries) == 0:
-            print("Warning: No sensor summaries available")
-            return None, None
-            
-        return combined_df, sensor_summaries
-        
-    except ImportError as e:
-        print(f"Import error in get_current_data: {e}")
-        print("Make sure analyze_mp1_data.py is available and working")
-        return None, None
-    except Exception as e:
-        print(f"Error getting current data: {e}")
-        import traceback
-        traceback.print_exc()
-        return None, None
-
 def get_sensor_data(sensor_id, start_date=None, end_date=None):
     """Get data for a specific sensor within date range"""
-    data_dir = Path('piloto_data')
-    if not data_dir.exists():
-        return None
-    
-    sensor_dataframes = []
-    pattern = f"Piloto{sensor_id}-*.dat"
-    
-    for file_path in data_dir.glob(pattern):
-        if file_path.stat().st_size == 0:
-            continue
-        
-        # Extract date from filename
-        try:
-            date_part = file_path.name.split('-')[1].replace('.dat', '')
-            day = int(date_part[:2])
-            month = int(date_part[2:4])
-            year = 2000 + int(date_part[4:6])
-            file_date = datetime(year, month, day)
-            
-            # Check if file date is within range
-            if start_date and file_date < start_date:
-                continue
-            if end_date and file_date > end_date:
-                continue
-                
-        except:
-            continue
-        
-        df = parse_piloto_file(file_path)
-        if df is not None and len(df) > 0:
-            df['sensor_id'] = sensor_id
-            df['file_date'] = file_date
-            sensor_dataframes.append(df)
-    
-    if not sensor_dataframes:
-        return None
-    
-    # Combine all dataframes
-    combined_df = pd.concat(sensor_dataframes, ignore_index=True)
-    combined_df = combined_df.sort_values('datetime')
-    
-    return combined_df
+    return get_sensor_data_processor(sensor_id, start_date, end_date)
 
 def create_time_series_plot():
     """Create time series plot of MP1.0 levels"""
-    data_dir = Path('piloto_data')
-    if not data_dir.exists():
+    current_data = get_current_data()
+    
+    if current_data.empty:
         return go.Figure().add_annotation(text="No data available", 
                                         xref="paper", yref="paper",
                                         x=0.5, y=0.5, showarrow=False)
     
-    # Dictionary to group data by sensor
-    sensor_data = {}
-    
-    for file_path in data_dir.glob("*.dat"):
-        if file_path.stat().st_size == 0:
-            continue
-            
-        sensor_id = file_path.name.split('-')[0].replace('Piloto', '')
-        df = parse_piloto_file(file_path)
-        
-        if df is not None and len(df) > 0:
-            df['sensor_id'] = sensor_id
-            
-            # Group data by sensor ID
-            if sensor_id not in sensor_data:
-                sensor_data[sensor_id] = []
-            sensor_data[sensor_id].append(df)
-    
-    if not sensor_data:
-        return go.Figure().add_annotation(text="No valid data found", 
-                                        xref="paper", yref="paper",
-                                        x=0.5, y=0.5, showarrow=False)
+    # Get all available sensors and create traces for each
+    available_sensors = current_data['Sensor_ID'].unique()
     
     fig = go.Figure()
     colors = px.colors.qualitative.Set1
     
-    # Combine data for each sensor and create a single trace per sensor
-    for i, (sensor_id, dataframes) in enumerate(sorted(sensor_data.items())):
-        # Concatenate all dataframes for this sensor
-        combined_df = pd.concat(dataframes, ignore_index=True)
+    # Create a trace for each sensor
+    for i, sensor_id in enumerate(sorted(available_sensors)):
+        # Get full data for this sensor
+        sensor_data = get_sensor_data(sensor_id)
         
-        # Sort by datetime to ensure proper line plotting
-        combined_df = combined_df.sort_values('datetime')
-        
-        fig.add_trace(go.Scatter(
-            x=combined_df['datetime'],
-            y=combined_df['MP1.0'],
-            mode='lines',
-            name=f'Sensor {sensor_id}',
-            line=dict(color=colors[i % len(colors)]),
-            hovertemplate='<b>Sensor %{fullData.name}</b><br>' +
-                         'Time: %{x}<br>' +
-                         'MP1.0: %{y:.1f} μg/m³<extra></extra>'
-        ))
+        if not sensor_data.empty:
+            fig.add_trace(go.Scatter(
+                x=sensor_data.index,  # datetime is the index
+                y=sensor_data['MP1'],
+                mode='lines',
+                name=f'Sensor {sensor_id}',
+                line=dict(color=colors[i % len(colors)]),
+                hovertemplate='<b>Sensor %{fullData.name}</b><br>' +
+                             'Time: %{x}<br>' +
+                             'MP1.0: %{y:.1f} μg/m³<extra></extra>'
+            ))
     
-    # Add WHO guideline lines
-    fig.add_hline(y=15, line_dash="dash", line_color="green", 
-                  annotation_text="WHO Good (≤15)")
-    fig.add_hline(y=25, line_dash="dash", line_color="yellow", 
-                  annotation_text="WHO Moderate (≤25)")
-    fig.add_hline(y=35, line_dash="dash", line_color="orange", 
-                  annotation_text="WHO Unhealthy Sensitive (≤35)")
-    fig.add_hline(y=75, line_dash="dash", line_color="red", 
-                  annotation_text="WHO Unhealthy (≤75)")
+    if fig.data:  # Only add guidelines if we have data
+        # Add WHO guideline lines
+        fig.add_hline(y=15, line_dash="dash", line_color="green", 
+                      annotation_text="WHO Good (≤15)")
+        fig.add_hline(y=25, line_dash="dash", line_color="yellow", 
+                      annotation_text="WHO Moderate (≤25)")
+        fig.add_hline(y=35, line_dash="dash", line_color="orange", 
+                      annotation_text="WHO Unhealthy Sensitive (≤35)")
+        fig.add_hline(y=75, line_dash="dash", line_color="red", 
+                      annotation_text="WHO Unhealthy (≤75)")
     
     fig.update_layout(
         title="MP1.0 Levels Over Time",
@@ -241,8 +151,8 @@ def create_sensor_specific_plot(sensor_id, start_date=None, end_date=None):
     
     # Main time series
     fig.add_trace(go.Scatter(
-        x=df['datetime'],
-        y=df['MP1.0'],
+        x=df.index,  # datetime is the index
+        y=df['MP1'],
         mode='lines+markers',
         name=f'Sensor {sensor_id}',
         line=dict(color='#3498db', width=2),
@@ -263,7 +173,7 @@ def create_sensor_specific_plot(sensor_id, start_date=None, end_date=None):
                   annotation_text="WHO Unhealthy (≤75)")
     
     # Add average line
-    avg_mp1 = df['MP1.0'].mean()
+    avg_mp1 = df['MP1'].mean()
     fig.add_hline(y=avg_mp1, line_dash="dot", line_color="purple", 
                   annotation_text=f"Average: {avg_mp1:.1f} μg/m³")
     
@@ -272,6 +182,7 @@ def create_sensor_specific_plot(sensor_id, start_date=None, end_date=None):
         xaxis_title="Time",
         yaxis_title="MP1.0 (μg/m³)",
         hovermode='x unified',
+        showlegend=True,
         height=500
     )
     
@@ -279,9 +190,9 @@ def create_sensor_specific_plot(sensor_id, start_date=None, end_date=None):
 
 def create_sensor_comparison_plot():
     """Create bar chart comparing average MP1.0 levels by sensor"""
-    combined_df, sensor_summaries = get_current_data()
+    current_data = get_current_data()
     
-    if sensor_summaries is None:
+    if current_data.empty:
         return go.Figure().add_annotation(text="No data available", 
                                         xref="paper", yref="paper",
                                         x=0.5, y=0.5, showarrow=False)
@@ -291,8 +202,10 @@ def create_sensor_comparison_plot():
     avg_values = []
     colors = []
     
-    for sensor_id, stats in sensor_summaries.items():
-        avg_mp1 = stats['mean_mp1']
+    # Group by sensor and calculate averages
+    for sensor_id in current_data['Sensor_ID'].unique():
+        sensor_data = current_data[current_data['Sensor_ID'] == sensor_id]
+        avg_mp1 = sensor_data['MP1'].mean()
         _, color, _ = get_air_quality_category(avg_mp1)
         
         sensor_ids.append(f'Sensor {sensor_id}')
@@ -332,9 +245,9 @@ def create_sensor_comparison_plot():
 def get_dashboard_stats():
     """Get summary statistics for dashboard cards"""
     try:
-        combined_df, sensor_summaries = get_current_data()
+        current_data = get_current_data()
         
-        if combined_df is None or sensor_summaries is None or len(combined_df) == 0:
+        if current_data.empty:
             return {
                 'total_sensors': 0,
                 'avg_mp1': 0,
@@ -346,14 +259,14 @@ def get_dashboard_stats():
                 'status': 'no_data'
             }
         
-        overall_avg = combined_df['MP1.0'].mean()
+        overall_avg = current_data['MP1'].mean()
         overall_category, overall_color, _ = get_air_quality_category(overall_avg)
         
         return {
-            'total_sensors': len(sensor_summaries),
+            'total_sensors': len(current_data['Sensor_ID'].unique()),
             'avg_mp1': round(overall_avg, 1),
-            'max_mp1': round(combined_df['MP1.0'].max(), 1),
-            'total_points': len(combined_df),
+            'max_mp1': round(current_data['MP1'].max(), 1),
+            'total_points': len(current_data),
             'overall_category': overall_category,
             'overall_color': overall_color,
             'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
@@ -380,13 +293,13 @@ def get_sensor_stats(sensor_id, start_date=None, end_date=None):
         return None
     
     stats = {
-        'mean_mp1': df['MP1.0'].mean(),
-        'max_mp1': df['MP1.0'].max(),
-        'min_mp1': df['MP1.0'].min(),
-        'std_mp1': df['MP1.0'].std(),
+        'mean_mp1': df['MP1'].mean(),
+        'max_mp1': df['MP1'].max(),
+        'min_mp1': df['MP1'].min(),
+        'std_mp1': df['MP1'].std(),
         'records': len(df),
-        'date_range': f"{df['datetime'].min().strftime('%Y-%m-%d %H:%M')} to {df['datetime'].max().strftime('%Y-%m-%d %H:%M')}",
-        'hours_covered': (df['datetime'].max() - df['datetime'].min()).total_seconds() / 3600
+        'date_range': f"{df.index.min().strftime('%Y-%m-%d %H:%M')} to {df.index.max().strftime('%Y-%m-%d %H:%M')}",
+        'hours_covered': (df.index.max() - df.index.min()).total_seconds() / 3600
     }
     
     return stats
@@ -627,14 +540,19 @@ def update_general_dashboard(n):
         comparison_fig = create_sensor_comparison_plot()
         
         # Sensor details
-        combined_df, sensor_summaries = get_current_data()
+        current_data = get_current_data()
         sensor_details = html.Div()
         
-        if sensor_summaries:
+        if not current_data.empty:
             sensor_cards = []
-            for sensor_id, sensor_stats in sorted(sensor_summaries.items(), 
-                                         key=lambda x: x[1]['mean_mp1'], reverse=True):
-                avg_mp1 = sensor_stats['mean_mp1']
+            
+            # Group data by sensor and calculate statistics
+            for sensor_id in current_data['Sensor_ID'].unique():
+                sensor_data = current_data[current_data['Sensor_ID'] == sensor_id]
+                avg_mp1 = sensor_data['MP1'].mean()
+                max_mp1 = sensor_data['MP1'].max()
+                records = len(sensor_data)
+                
                 category, color, risk = get_air_quality_category(avg_mp1)
                 
                 card = html.Div([
@@ -658,13 +576,13 @@ def update_general_dashboard(n):
                         ], style={'textAlign': 'center', 'padding': '10px', 'background': '#f8f9fa', 'borderRadius': '5px'}),
                         
                         html.Div([
-                            html.Strong(f"{sensor_stats['max_mp1']:.1f}"),
+                            html.Strong(f"{max_mp1:.1f}"),
                             html.Br(),
                             html.Small("Max MP1.0")
                         ], style={'textAlign': 'center', 'padding': '10px', 'background': '#f8f9fa', 'borderRadius': '5px'}),
                         
                         html.Div([
-                            html.Strong(f"{sensor_stats['records']}"),
+                            html.Strong(f"{records}"),
                             html.Br(),
                             html.Small("Data Points")
                         ], style={'textAlign': 'center', 'padding': '10px', 'background': '#f8f9fa', 'borderRadius': '5px'}),
@@ -743,23 +661,22 @@ def update_general_dashboard(n):
 )
 def update_sensor_analysis(n, selected_sensor, start_date, end_date):
     try:
-        combined_df, sensor_summaries = get_current_data()
+        current_data = get_current_data()
         
         # Get available sensors for dropdown
-        if sensor_summaries:
+        if not current_data.empty:
             sensor_options = [{'label': f'Sensor {sid}', 'value': sid} 
-                            for sid in sorted(sensor_summaries.keys())]
+                            for sid in sorted(current_data['Sensor_ID'].unique())]
             
-            # Default to highest MP1.0 sensor if none selected
+            # Default to first sensor if none selected
             if not selected_sensor:
-                selected_sensor = max(sensor_summaries.keys(), 
-                                    key=lambda x: sensor_summaries[x]['mean_mp1'])
+                selected_sensor = sorted(current_data['Sensor_ID'].unique())[0]
         else:
             sensor_options = []
             selected_sensor = None
         
         # Handle no sensor selected or no data
-        if not selected_sensor or combined_df.empty:
+        if not selected_sensor or current_data.empty:
             empty_stats = html.Div([
                 html.H3("No Data Available", style={'textAlign': 'center', 'color': '#7f8c8d'}),
                 html.P("Select a sensor or check if data is available.", 
@@ -777,16 +694,8 @@ def update_sensor_analysis(n, selected_sensor, start_date, end_date):
             current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             return sensor_options, selected_sensor, empty_stats, empty_fig, f"Last checked: {current_time}"
         
-        # Filter data for selected sensor and date range
-        sensor_data = combined_df[combined_df['sensor_id'] == selected_sensor].copy()
-        
-        if start_date and end_date:
-            start_date = pd.to_datetime(start_date)
-            end_date = pd.to_datetime(end_date) + pd.Timedelta(days=1)  # Include end date
-            sensor_data = sensor_data[
-                (sensor_data['datetime'] >= start_date) & 
-                (sensor_data['datetime'] < end_date)
-            ]
+        # Get sensor data using the modular processor
+        sensor_data = get_sensor_data(selected_sensor, start_date, end_date)
         
         if sensor_data.empty:
             empty_stats = html.Div([
@@ -807,15 +716,18 @@ def update_sensor_analysis(n, selected_sensor, start_date, end_date):
             return sensor_options, selected_sensor, empty_stats, empty_fig, f"Last checked: {current_time}"
         
         # Calculate statistics
-        avg_mp1 = sensor_data['MP1.0'].mean()
-        max_mp1 = sensor_data['MP1.0'].max()
-        min_mp1 = sensor_data['MP1.0'].min()
-        std_mp1 = sensor_data['MP1.0'].std()
+        avg_mp1 = sensor_data['MP1'].mean()
+        max_mp1 = sensor_data['MP1'].max()
+        min_mp1 = sensor_data['MP1'].min()
+        std_mp1 = sensor_data['MP1'].std()
         data_points = len(sensor_data)
         
         # Calculate hours of data (approximate)
-        time_span = sensor_data['datetime'].max() - sensor_data['datetime'].min()
-        hours_of_data = time_span.total_seconds() / 3600
+        if len(sensor_data) > 1:
+            time_span = sensor_data.index.max() - sensor_data.index.min()
+            hours_of_data = time_span.total_seconds() / 3600
+        else:
+            hours_of_data = 0
         
         # Create statistics cards
         stats_cards = html.Div([
@@ -857,9 +769,10 @@ def update_sensor_analysis(n, selected_sensor, start_date, end_date):
         
         # Create detailed plot
         fig = go.Figure()
+        
         fig.add_trace(go.Scatter(
-            x=sensor_data['datetime'],
-            y=sensor_data['MP1.0'],
+            x=sensor_data.index,  # datetime is the index
+            y=sensor_data['MP1'],
             mode='lines+markers',
             name=f'Sensor {selected_sensor}',
             line=dict(color='#3498db', width=2),
@@ -944,12 +857,12 @@ app.index_string = '''
 </html>
 '''
 
-if __name__ == "__main__":
-    print("🌐 Starting USACH Air Quality Dash Dashboard...")
-    print("📊 Dashboard will be available at: http://localhost:8050")
-    print("💡 Tip: Run 'python fetch_piloto_files.py' first to ensure you have data!")
-    print("🔄 Dashboard auto-refreshes every 10 minutes")
-    print("📋 Features:")
+if __name__ == '__main__':
+    print("Starting USACH Air Quality Dash Dashboard...")
+    print("Dashboard will be available at: http://localhost:8050")
+    print("Tip: Run 'python fetch_piloto_files.py' first to ensure you have data!")
+    print("Dashboard auto-refreshes every 10 minutes")
+    print("Features:")
     print("   - General Health Overview (Tab 1)")
     print("   - Specific Sensor Analysis (Tab 2)")
     print()
