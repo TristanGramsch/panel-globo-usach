@@ -34,7 +34,7 @@ def get_air_quality_category(avg_mp1):
     elif avg_mp1 <= 35:
         return "Dañina para Grupos Sensibles", "#e67e22", "Riesgo para la salud moderado"
     elif avg_mp1 <= 75:
-        return "Dañina", "#e74c3c", "Riesgo para la salud alto"
+        return "Contaminación dañina", "#e74c3c", "Alto riesgo para la salud"
     else:
         return "Muy Dañina", "#8e44ad", "Riesgo para la salud muy alto"
 
@@ -83,162 +83,161 @@ def get_sensor_data(sensor_id, start_date=None, end_date=None):
     return get_sensor_data_processor(sensor_id, start_date, end_date)
 
 def create_time_series_plot():
-    """Crear gráfico de series de tiempo de niveles de MP1.0"""
-    current_data = get_current_data()
-    
-    if current_data.empty:
-        return go.Figure().add_annotation(text="No hay datos disponibles", 
-                                        xref="paper", yref="paper",
-                                        x=0.5, y=0.5, showarrow=False)
-    
-    # Obtener todos los sensores disponibles y crear trazas para cada uno
-    available_sensors = current_data['Sensor_ID'].unique()
-    
-    fig = go.Figure()
-    colors = px.colors.qualitative.Set1
-    
-    # Crear una traza para cada sensor
-    for i, sensor_id in enumerate(sorted(available_sensors)):
-        # Obtener datos completos para este sensor
-        sensor_data = get_sensor_data(sensor_id)
+    """Crear gráfico de series temporales para todos los sensores"""
+    try:
+        # Obtener datos actuales para verificar sensores disponibles
+        current_data = get_current_data()
+        if current_data.empty:
+            return create_empty_plot("No hay datos disponibles")
         
-        if not sensor_data.empty:
-            fig.add_trace(go.Scatter(
-                x=sensor_data.index,  # datetime es el índice
-                y=sensor_data['MP1'],
-                mode='lines',
-                name=f'Sensor {sensor_id}',
-                line=dict(color=colors[i % len(colors)]),
-                hovertemplate='<b>Sensor %{fullData.name}</b><br>' +
-                             'Hora: %{x}<br>' +
-                             'MP1.0: %{y:.1f} μg/m³<extra></extra>'
-            ))
-    
-    if fig.data:  # Solo agregar líneas de referencia si tenemos datos
+        fig = go.Figure()
+        colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#34495e', '#e67e22', '#95a5a6', '#f1c40f', '#8e44ad']
+        
+        # Obtener datos para cada sensor disponible
+        available_sensors = current_data['Sensor_ID'].unique()
+        
+        for i, sensor_id in enumerate(available_sensors):
+            sensor_data = get_sensor_data_processor(sensor_id)
+            if not sensor_data.empty:
+                fig.add_trace(go.Scatter(
+                    x=sensor_data.index,
+                    y=sensor_data['MP1'],
+                    mode='lines',
+                    name=f'Sensor {sensor_id}',
+                    line=dict(color=colors[i % len(colors)]),
+                    hovertemplate='<b>Sensor %{fullData.name}</b><br>' +
+                                  'Fecha: %{x}<br>' +
+                                  'MP1.0: %{y:.1f} μg/m³<extra></extra>'
+                ))
+        
+        fig.update_layout(
+            title="Niveles de MP1.0 a lo largo del tiempo",
+            xaxis_title="Fecha",
+            yaxis_title="MP1.0 (μg/m³)",
+            hovermode='x unified',
+            showlegend=True,
+            height=500
+        )
+        
         # Agregar líneas de referencia OMS
         fig.add_hline(y=15, line_dash="dash", line_color="green", 
-                      annotation_text="OMS Buena (≤15)")
-        fig.add_hline(y=25, line_dash="dash", line_color="yellow", 
-                      annotation_text="OMS Moderada (≤25)")
-        fig.add_hline(y=35, line_dash="dash", line_color="orange", 
-                      annotation_text="OMS Dañina Sensibles (≤35)")
-        fig.add_hline(y=75, line_dash="dash", line_color="red", 
-                      annotation_text="OMS Dañina (≤75)")
-    
-    fig.update_layout(
-        title="Niveles de MP1.0 a lo Largo del Tiempo",
-        xaxis_title="Hora",
-        yaxis_title="MP1.0 (μg/m³)",
-        hovermode='x unified',
-        showlegend=True,
-        height=500
-    )
-    
-    return fig
+                      annotation_text="OMS: Buena (15 μg/m³)")
+        fig.add_hline(y=25, line_dash="dash", line_color="orange", 
+                      annotation_text="OMS: Moderada (25 μg/m³)")
+        fig.add_hline(y=35, line_dash="dash", line_color="red", 
+                      annotation_text="OMS: Dañina (35 μg/m³)")
+        
+        return fig
+        
+    except Exception as e:
+        print(f"Error creando gráfico de series temporales: {e}")
+        return create_empty_plot("Error al crear el gráfico")
 
 def create_sensor_specific_plot(sensor_id, start_date=None, end_date=None):
-    """Crear gráfico detallado para un sensor específico"""
-    df = get_sensor_data(sensor_id, start_date, end_date)
-    
-    if df is None or len(df) == 0:
-        return go.Figure().add_annotation(
-            text=f"No hay datos disponibles para el Sensor {sensor_id}",
-            xref="paper", yref="paper",
-            x=0.5, y=0.5, showarrow=False
+    """Crear gráfico específico para un sensor con rango de fechas opcional"""
+    try:
+        if not sensor_id:
+            return create_empty_plot("Seleccione un sensor")
+        
+        # Obtener datos del sensor
+        sensor_data = get_sensor_data_processor(sensor_id)
+        
+        if sensor_data.empty:
+            return create_empty_plot(f"No hay datos para el sensor {sensor_id}")
+        
+        # Filtrar por rango de fechas si se proporciona
+        if start_date and end_date:
+            mask = (sensor_data.index >= start_date) & (sensor_data.index <= end_date)
+            sensor_data = sensor_data.loc[mask]
+            
+            if sensor_data.empty:
+                return create_empty_plot(f"No hay datos para el sensor {sensor_id} en el rango seleccionado")
+        
+        fig = go.Figure()
+        
+        # Agregar datos del sensor
+        fig.add_trace(go.Scatter(
+            x=sensor_data.index,
+            y=sensor_data['MP1'],
+            mode='lines+markers',
+            name=f'Sensor {sensor_id}',
+            line=dict(color='#3498db'),
+            marker=dict(size=4),
+            hovertemplate='<b>Sensor %{fullData.name}</b><br>' +
+                          'Fecha: %{x}<br>' +
+                          'MP1.0: %{y:.1f} μg/m³<extra></extra>'
+        ))
+        
+        # Agregar línea de promedio
+        avg_mp1 = sensor_data['MP1'].mean()
+        fig.add_hline(y=avg_mp1, line_dash="dot", line_color="purple", 
+                      annotation_text=f"Promedio: {avg_mp1:.1f} μg/m³")
+        
+        fig.update_layout(
+            title=f"Sensor {sensor_id} - Análisis Detallado de MP1.0",
+            xaxis_title="Fecha",
+            yaxis_title="MP1.0 (μg/m³)",
+            hovermode='x unified',
+            showlegend=True,
+            height=500
         )
-    
-    fig = go.Figure()
-    
-    # Serie de tiempo principal
-    fig.add_trace(go.Scatter(
-        x=df.index,  # datetime es el índice
-        y=df['MP1'],
-        mode='lines+markers',
-        name=f'Sensor {sensor_id}',
-        line=dict(color='#3498db', width=2),
-        marker=dict(size=4),
-        hovertemplate='<b>Sensor %{fullData.name}</b><br>' +
-                     'Hora: %{x}<br>' +
-                     'MP1.0: %{y:.1f} μg/m³<extra></extra>'
-    ))
-    
-    # Agregar líneas de referencia OMS
-    fig.add_hline(y=15, line_dash="dash", line_color="green", 
-                  annotation_text="OMS Buena (≤15)")
-    fig.add_hline(y=25, line_dash="dash", line_color="orange", 
-                  annotation_text="OMS Moderada (≤25)")
-    fig.add_hline(y=35, line_dash="dash", line_color="orange", 
-                  annotation_text="OMS Dañina Sensibles (≤35)")
-    fig.add_hline(y=75, line_dash="dash", line_color="red", 
-                  annotation_text="OMS Dañina (≤75)")
-    
-    # Agregar línea de promedio
-    avg_mp1 = df['MP1'].mean()
-    fig.add_hline(y=avg_mp1, line_dash="dot", line_color="purple", 
-                  annotation_text=f"Promedio: {avg_mp1:.1f} μg/m³")
-    
-    fig.update_layout(
-        title=f"Sensor {sensor_id} - Análisis Detallado de MP1.0",
-        xaxis_title="Hora",
-        yaxis_title="MP1.0 (μg/m³)",
-        hovermode='x unified',
-        showlegend=True,
-        height=500
-    )
-    
-    return fig
+        
+        # Agregar líneas de referencia OMS
+        fig.add_hline(y=15, line_dash="dash", line_color="green", 
+                      annotation_text="OMS: Buena")
+        fig.add_hline(y=25, line_dash="dash", line_color="orange", 
+                      annotation_text="OMS: Moderada")
+        fig.add_hline(y=35, line_dash="dash", line_color="red", 
+                      annotation_text="OMS: Dañina")
+        
+        return fig
+        
+    except Exception as e:
+        print(f"Error creando gráfico específico del sensor: {e}")
+        return create_empty_plot("Error al crear el gráfico")
 
 def create_sensor_comparison_plot():
-    """Crear gráfico de barras comparando niveles promedio de MP1.0 por sensor"""
-    current_data = get_current_data()
-    
-    if current_data.empty:
-        return go.Figure().add_annotation(text="No hay datos disponibles", 
-                                        xref="paper", yref="paper",
-                                        x=0.5, y=0.5, showarrow=False)
-    
-    # Preparar datos para gráfico de barras
-    sensor_avg = current_data.groupby('Sensor_ID')['MP1'].mean().reset_index()
-    sensor_avg = sensor_avg.sort_values('MP1', ascending=False)
-    
-    # Crear gráfico de barras
-    fig = go.Figure()
-    
-    # Asignar colores basados en categorías OMS
-    colors = []
-    for mp1_val in sensor_avg['MP1']:
-        category, color, _ = get_air_quality_category(mp1_val)
-        colors.append(color)
-    
-    fig.add_trace(go.Bar(
-        x=sensor_avg['Sensor_ID'],
-        y=sensor_avg['MP1'],
-        marker_color=colors,
-        text=[f'{val:.1f}' for val in sensor_avg['MP1']],
-        textposition='outside',
-        hovertemplate='<b>Sensor %{x}</b><br>' +
-                     'MP1.0 Promedio: %{y:.1f} μg/m³<extra></extra>'
-    ))
-    
-    # Agregar líneas de referencia OMS
-    fig.add_hline(y=15, line_dash="dash", line_color="green", 
-                  annotation_text="OMS Buena")
-    fig.add_hline(y=25, line_dash="dash", line_color="orange", 
-                  annotation_text="OMS Moderada")
-    fig.add_hline(y=35, line_dash="dash", line_color="red", 
-                  annotation_text="OMS Dañina Sensibles")
-    fig.add_hline(y=75, line_dash="dash", line_color="darkred", 
-                  annotation_text="OMS Dañina")
-    
-    fig.update_layout(
-        title="Comparación de Niveles Promedio de MP1.0 por Sensor",
-        xaxis_title="ID del Sensor",
-        yaxis_title="MP1.0 Promedio (μg/m³)",
-        showlegend=False,
-        height=400
-    )
-    
-    return fig
+    """Crear gráfico de comparación de sensores"""
+    try:
+        current_data = get_current_data()
+        if current_data.empty:
+            return create_empty_plot("No hay datos disponibles")
+        
+        # Agrupar por sensor y calcular promedio
+        sensor_averages = current_data.groupby('Sensor_ID')['MP1'].mean().reset_index()
+        sensor_averages = sensor_averages.sort_values('MP1', ascending=False)
+        
+        fig = go.Figure(data=[
+            go.Bar(
+                x=sensor_averages['Sensor_ID'],
+                y=sensor_averages['MP1'],
+                marker_color='#3498db',
+                hovertemplate='<b>Sensor %{x}</b><br>' +
+                              'Promedio MP1.0: %{y:.1f} μg/m³<extra></extra>'
+            )
+        ])
+        
+        fig.update_layout(
+            title="Promedio de MP1.0 por Sensor",
+            xaxis_title="Identificador",
+            yaxis_title="MP1.0 Promedio (μg/m³)",
+            showlegend=False,
+            height=400
+        )
+        
+        # Agregar líneas de referencia OMS
+        fig.add_hline(y=15, line_dash="dash", line_color="green", 
+                      annotation_text="OMS: Buena")
+        fig.add_hline(y=25, line_dash="dash", line_color="orange", 
+                      annotation_text="OMS: Moderada")
+        fig.add_hline(y=35, line_dash="dash", line_color="red", 
+                      annotation_text="OMS: Dañina")
+        
+        return fig
+        
+    except Exception as e:
+        print(f"Error creando gráfico de comparación: {e}")
+        return create_empty_plot("Error al crear el gráfico")
 
 def get_dashboard_stats():
     """Obtener estadísticas para el panel general"""
@@ -251,13 +250,22 @@ def get_dashboard_stats():
                 'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             }
         
+        # Calcular total de puntos de datos en todos los sensores
+        total_data_points = 0
+        available_sensors = current_data['Sensor_ID'].unique()
+        
+        for sensor_id in available_sensors:
+            sensor_data = get_sensor_data_processor(sensor_id)
+            if not sensor_data.empty:
+                total_data_points += len(sensor_data)
+        
         stats = {
             'status': 'success',
             'total_sensors': len(current_data['Sensor_ID'].unique()),
             'avg_mp1': f"{current_data['MP1'].mean():.1f}",
             'max_mp1': f"{current_data['MP1'].max():.1f}",
             'min_mp1': f"{current_data['MP1'].min():.1f}",
-            'total_points': len(current_data),
+            'total_points': total_data_points,
             'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
         
@@ -473,8 +481,12 @@ def update_general_dashboard(n):
             )
             
             sensor_details = html.Div([
-                html.H2("Detalles de Sensores", style={'color': '#2c3e50'}),
-                html.P("No hay datos de sensores disponibles.", style={'color': '#7f8c8d', 'fontStyle': 'italic'})
+                html.H2("Detalle", style={'color': '#2c3e50', 'marginBottom': '20px'}),
+                html.Div(sensor_cards, style={
+                    'display': 'grid',
+                    'gridTemplateColumns': 'repeat(auto-fit, minmax(250px, 1fr))',
+                    'gap': '15px'
+                })
             ])
             
             last_update = f"Última verificación: {stats['last_update']}"
@@ -516,7 +528,7 @@ def update_general_dashboard(n):
                 
                 html.Div([
                     html.H2(str(stats['avg_mp1']), style={'margin': '0', 'color': '#2c3e50'}),
-                    html.P("Prom MP1.0 (μg/m³)", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
+                    html.P("Promedio MP1.0 (μg/m³)", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
                 ], className='stat-card'),
                 
                 html.Div([
@@ -526,7 +538,7 @@ def update_general_dashboard(n):
                 
                 html.Div([
                     html.H2(str(stats['total_points']), style={'margin': '0', 'color': '#2c3e50'}),
-                    html.P("Total Puntos de Datos", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
+                    html.P("Datos totales", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
                 ], className='stat-card')
             ], style={
                 'display': 'grid',
@@ -564,7 +576,7 @@ def update_general_dashboard(n):
                 sensor_cards.append(sensor_card)
             
             sensor_details = html.Div([
-                html.H2("Detalles de Sensores", style={'color': '#2c3e50', 'marginBottom': '20px'}),
+                html.H2("Detalle", style={'color': '#2c3e50', 'marginBottom': '20px'}),
                 html.Div(sensor_cards, style={
                     'display': 'grid',
                     'gridTemplateColumns': 'repeat(auto-fit, minmax(250px, 1fr))',
@@ -573,7 +585,7 @@ def update_general_dashboard(n):
             ])
         else:
             sensor_details = html.Div([
-                html.H2("Detalles de Sensores", style={'color': '#2c3e50'}),
+                html.H2("Detalle", style={'color': '#2c3e50'}),
                 html.P("No hay datos de sensores disponibles.", style={'color': '#7f8c8d', 'fontStyle': 'italic'})
             ])
         
@@ -709,7 +721,7 @@ def update_sensor_analysis(n, selected_sensor, start_date, end_date):
             
             html.Div([
                 html.H3(f"{data_points:,}", style={'margin': '0', 'color': '#3498db'}),
-                html.P("Puntos de Datos", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
+                html.P("Datos totales", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
             ], className='stat-card'),
             
             html.Div([
@@ -745,7 +757,7 @@ def update_sensor_analysis(n, selected_sensor, start_date, end_date):
         
         fig.update_layout(
             title=f'Análisis Detallado - Sensor {selected_sensor}',
-            xaxis_title='Hora',
+            xaxis_title='Fecha',
             yaxis_title='Material Particulado MP1.0 (μg/m³)',
             height=500,
             hovermode='x unified',
