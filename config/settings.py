@@ -15,22 +15,22 @@ LOGS_DIR = PROJECT_ROOT / 'logs'
 # Dashboard Configuration
 DEFAULT_PORT = 8050
 DASHBOARD_PORT = 8050  # Keep for backward compatibility
-DASHBOARD_TITLE = "USACH Air Quality Monitor"
+DASHBOARD_TITLE = "Monitor de Calidad del Aire USACH"
 AUTO_REFRESH_INTERVAL = 10 * 60 * 1000  # 10 minutes in milliseconds
 DEBUG_MODE = False
 
-# WHO Air Quality Guidelines (MP1.0 μg/m³)
+# WHO Air Quality Guidelines (MP1.0 μg/m³) - Spanish Labels
 WHO_GUIDELINES = {
     'good_max': 15,
     'moderate_max': 25,
     'unhealthy_sensitive_max': 35,
     'unhealthy_max': 75,
     'very_unhealthy_max': 150,
-    'good': {'max': 15, 'color': '#27ae60', 'label': 'Good', 'risk': 'Very low health risk'},
-    'moderate': {'max': 25, 'color': '#f39c12', 'label': 'Moderate', 'risk': 'Low health risk'},
-    'unhealthy_sensitive': {'max': 35, 'color': '#e67e22', 'label': 'Unhealthy for Sensitive', 'risk': 'Moderate health risk'},
-    'unhealthy': {'max': 75, 'color': '#e74c3c', 'label': 'Unhealthy', 'risk': 'High health risk'},
-    'very_unhealthy': {'max': float('inf'), 'color': '#8e44ad', 'label': 'Very Unhealthy', 'risk': 'Very high health risk'}
+    'good': {'max': 15, 'color': '#27ae60', 'label': 'Buena', 'risk': 'Riesgo para la salud muy bajo'},
+    'moderate': {'max': 25, 'color': '#f39c12', 'label': 'Moderada', 'risk': 'Riesgo para la salud bajo'},
+    'unhealthy_sensitive': {'max': 35, 'color': '#e67e22', 'label': 'Dañina para Grupos Sensibles', 'risk': 'Riesgo para la salud moderado'},
+    'unhealthy': {'max': 75, 'color': '#e74c3c', 'label': 'Dañina', 'risk': 'Riesgo para la salud alto'},
+    'very_unhealthy': {'max': float('inf'), 'color': '#8e44ad', 'label': 'Muy Dañina', 'risk': 'Riesgo para la salud muy alto'}
 }
 
 # Chart Configuration
@@ -44,12 +44,12 @@ VALID_FILE_EXTENSIONS = ['.dat']
 MIN_FILE_SIZE_BYTES = 100
 MAX_PROCESSING_TIME_SECONDS = 300
 
-# Error Messages
+# Error Messages - Spanish
 ERROR_MESSAGES = {
-    'no_data': "No data available. Run 'python fetch_piloto_files.py' to download data.",
-    'processing_error': "There was an error processing the air quality data. Please check the logs.",
-    'sensor_not_found': "Selected sensor data not found.",
-    'date_range_empty': "No data available for the selected date range."
+    'no_data': "No hay datos disponibles. Ejecute 'python fetch_piloto_files.py' para descargar datos.",
+    'processing_error': "Hubo un error procesando los datos de calidad del aire. Por favor revise los registros.",
+    'sensor_not_found': "Datos del sensor seleccionado no encontrados.",
+    'date_range_empty': "No hay datos disponibles para el rango de fechas seleccionado."
 }
 
 # CSS Styles
