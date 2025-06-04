@@ -38,6 +38,24 @@ def get_air_quality_category(avg_mp1):
     else:
         return "Muy Dañina", "#8e44ad", "Riesgo para la salud muy alto"
 
+def create_empty_plot(message, title="No Data Available"):
+    """Crear un gráfico vacío con un mensaje"""
+    fig = go.Figure()
+    fig.add_annotation(
+        text=message,
+        xref="paper", yref="paper",
+        x=0.5, y=0.5, showarrow=False,
+        font=dict(size=16, color="#7f8c8d")
+    )
+    fig.update_layout(
+        title=title,
+        height=400,
+        showlegend=False,
+        xaxis=dict(showticklabels=False, showgrid=False),
+        yaxis=dict(showticklabels=False, showgrid=False)
+    )
+    return fig
+
 def get_sensor_color(sensor_id, available_sensors):
     """Obtener color consistente para un sensor basado en su posición en la lista de sensores disponibles"""
     colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#34495e', '#e67e22', '#95a5a6', '#f1c40f', '#8e44ad']
@@ -95,6 +113,177 @@ def get_date_range():
 def get_sensor_data(sensor_id, start_date=None, end_date=None):
     """Obtener datos para un sensor específico dentro del rango de fechas"""
     return get_sensor_data_processor(sensor_id, start_date, end_date)
+
+def get_sensor_health_status():
+    """Analizar el estado de salud de todos los sensores"""
+    try:
+        data_dir = Path('piloto_data')
+        if not data_dir.exists():
+            return {
+                'status': 'no_data',
+                'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+        
+        today = datetime.now()
+        yesterday = today - timedelta(days=1)
+        
+        # Obtener todos los sensores únicos
+        all_sensors = set()
+        sensor_health = {}
+        
+        for file_path in data_dir.glob("*.dat"):
+            try:
+                # Extraer sensor ID y fecha del nombre del archivo
+                filename = file_path.name
+                sensor_id = filename.split('-')[0].replace('Piloto', '')
+                date_part = filename.split('-')[1].replace('.dat', '')
+                
+                # Convertir fecha DDMMYY a datetime
+                day = int(date_part[:2])
+                month = int(date_part[2:4])
+                year = 2000 + int(date_part[4:6])
+                file_date = datetime(year, month, day)
+                
+                all_sensors.add(sensor_id)
+                
+                if sensor_id not in sensor_health:
+                    sensor_health[sensor_id] = {
+                        'last_data_date': None,
+                        'last_file_size': 0,
+                        'total_files': 0,
+                        'empty_files': 0,
+                        'working_today': False,
+                        'working_yesterday': False,
+                        'status': 'unknown'
+                    }
+                
+                sensor_health[sensor_id]['total_files'] += 1
+                
+                # Verificar si el archivo tiene datos
+                file_size = file_path.stat().st_size
+                if file_size == 0:
+                    sensor_health[sensor_id]['empty_files'] += 1
+                else:
+                    # Actualizar última fecha con datos
+                    if (sensor_health[sensor_id]['last_data_date'] is None or 
+                        file_date > sensor_health[sensor_id]['last_data_date']):
+                        sensor_health[sensor_id]['last_data_date'] = file_date
+                        sensor_health[sensor_id]['last_file_size'] = file_size
+                
+                # Verificar si está funcionando hoy
+                if file_date.date() == today.date() and file_size > 0:
+                    sensor_health[sensor_id]['working_today'] = True
+                
+                # Verificar si funcionó ayer
+                if file_date.date() == yesterday.date() and file_size > 0:
+                    sensor_health[sensor_id]['working_yesterday'] = True
+                    
+            except (ValueError, IndexError) as e:
+                continue
+        
+        # Determinar estado de cada sensor
+        for sensor_id in sensor_health:
+            health = sensor_health[sensor_id]
+            
+            if health['working_today']:
+                health['status'] = 'healthy'
+            elif health['working_yesterday']:
+                health['status'] = 'warning'
+            elif health['last_data_date'] is not None:
+                # Verificar hace cuántos días tuvo datos
+                days_since_data = (today.date() - health['last_data_date'].date()).days
+                if days_since_data <= 3:
+                    health['status'] = 'warning'
+                else:
+                    health['status'] = 'critical'
+            else:
+                health['status'] = 'critical'
+        
+        # Calcular estadísticas generales
+        healthy_count = sum(1 for h in sensor_health.values() if h['status'] == 'healthy')
+        warning_count = sum(1 for h in sensor_health.values() if h['status'] == 'warning')
+        critical_count = sum(1 for h in sensor_health.values() if h['status'] == 'critical')
+        
+        return {
+            'status': 'success',
+            'sensor_health': sensor_health,
+            'summary': {
+                'total_sensors': len(all_sensors),
+                'healthy': healthy_count,
+                'warning': warning_count,
+                'critical': critical_count,
+                'healthy_percentage': round((healthy_count / len(all_sensors)) * 100, 1) if all_sensors else 0
+            },
+            'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        
+    except Exception as e:
+        print(f"Error obteniendo estado de salud de sensores: {e}")
+        return {
+            'status': 'error',
+            'error': str(e),
+            'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+
+def create_sensor_health_plot(health_data):
+    """Crear gráfico de estado de salud de sensores"""
+    try:
+        if health_data['status'] != 'success':
+            return create_empty_plot("Error obteniendo datos de salud de sensores")
+        
+        sensor_health = health_data['sensor_health']
+        
+        # Preparar datos para el gráfico
+        sensors = []
+        statuses = []
+        colors = []
+        last_dates = []
+        
+        status_colors = {
+            'healthy': '#27ae60',    # Verde
+            'warning': '#f39c12',    # Naranja
+            'critical': '#e74c3c'    # Rojo
+        }
+        
+        for sensor_id, health in sorted(sensor_health.items()):
+            sensors.append(f'Sensor {sensor_id}')
+            statuses.append(health['status'].title())
+            colors.append(status_colors[health['status']])
+            
+            if health['last_data_date']:
+                last_dates.append(health['last_data_date'].strftime('%Y-%m-%d'))
+            else:
+                last_dates.append('Sin datos')
+        
+        fig = go.Figure(data=[
+            go.Bar(
+                x=sensors,
+                y=[1] * len(sensors),  # Altura uniforme
+                marker_color=colors,
+                text=statuses,
+                textposition='inside',
+                hovertemplate='<b>%{x}</b><br>' +
+                              'Estado: %{text}<br>' +
+                              'Últimos datos: %{customdata}<extra></extra>',
+                customdata=last_dates
+            )
+        ])
+        
+        fig.update_layout(
+            title="Estado de Salud de Sensores",
+            xaxis_title="Sensores",
+            yaxis_title="Estado",
+            showlegend=False,
+            height=400,
+            yaxis=dict(showticklabels=False, showgrid=False),
+            xaxis=dict(tickangle=45)
+        )
+        
+        return fig
+        
+    except Exception as e:
+        print(f"Error creando gráfico de salud: {e}")
+        return create_empty_plot("Error creando gráfico de salud")
 
 def create_time_series_plot():
     """Crear gráfico de series temporales para todos los sensores"""
@@ -333,6 +522,53 @@ def get_sensor_stats(sensor_id, start_date=None, end_date=None):
             'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
 
+def render_health_tab():
+    """Renderizar la pestaña de estado de sensores"""
+    return html.Div([
+        # Tarjetas de resumen de estado
+        html.Div(id='health-summary-cards', style={'margin': '20px 0'}),
+        
+        # Caja explicativa de estados
+        html.Div([
+            html.H3("Explicación de Estados de Sensores", 
+                   style={'color': '#2c3e50', 'marginBottom': '15px', 'textAlign': 'center'}),
+            html.Div([
+                html.Div([
+                    html.Div([
+                        html.Span("●", style={'color': '#27ae60', 'fontSize': '20px', 'marginRight': '10px'}),
+                        html.Strong("Saludable:", style={'color': '#27ae60'}),
+                        html.Span(" El sensor ha enviado datos hoy.")
+                    ], style={'marginBottom': '10px'}),
+                    html.Div([
+                        html.Span("●", style={'color': '#f39c12', 'fontSize': '20px', 'marginRight': '10px'}),
+                        html.Strong("Advertencia:", style={'color': '#f39c12'}),
+                        html.Span(" El sensor envió datos ayer o en los últimos 3 días.")
+                    ], style={'marginBottom': '10px'}),
+                    html.Div([
+                        html.Span("●", style={'color': '#e74c3c', 'fontSize': '20px', 'marginRight': '10px'}),
+                        html.Strong("Crítico:", style={'color': '#e74c3c'}),
+                        html.Span(" El sensor no ha enviado datos por más de 3 días o nunca.")
+                    ], style={'marginBottom': '0px'})
+                ], style={'padding': '20px'})
+            ], style={
+                'background': '#f8f9fa',
+                'border': '1px solid #dee2e6',
+                'borderRadius': '10px',
+                'margin': '20px 0'
+            })
+        ]),
+        
+        # Tabla detallada de sensores
+        html.Div(id='sensor-health-table', style={'margin': '20px 0'}),
+        
+        # Pie de página
+        html.Div([
+            html.P(id='health-last-update', style={'textAlign': 'center', 'color': '#7f8c8d', 'margin': '10px 0'}),
+            html.P("Los sensores se consideran saludables si han enviado datos hoy. Estado de advertencia si enviaron ayer.", 
+                   style={'textAlign': 'center', 'color': '#7f8c8d', 'fontSize': '0.9em', 'margin': '5px 0'})
+        ], style={'background': '#ecf0f1', 'padding': '15px', 'marginTop': '30px'})
+    ])
+
 # Obtener sensores y fechas disponibles
 available_sensors = get_available_sensors()
 min_date, max_date = get_date_range()
@@ -362,7 +598,8 @@ app.layout = html.Div([
     html.Div([
         dcc.Tabs(id="tabs", value="tab-1", children=[
             dcc.Tab(label="Resumen General", value="tab-1", style={'padding': '10px'}),
-            dcc.Tab(label="Análisis de Sensor Específico", value="tab-2", style={'padding': '10px'})
+            dcc.Tab(label="Análisis de Sensor Específico", value="tab-2", style={'padding': '10px'}),
+            dcc.Tab(label="Estado de Sensores", value="tab-3", style={'padding': '10px'})
         ], style={'marginBottom': '20px'}),
         
         html.Div(id='tabs-content')
@@ -457,6 +694,8 @@ def render_content(tab):
         return render_general_tab()
     elif tab == 'tab-2':
         return render_specific_tab()
+    elif tab == 'tab-3':
+        return render_health_tab()
 
 # Callbacks para actualizaciones de pestaña general
 @app.callback(
@@ -812,6 +1051,164 @@ def update_sensor_analysis(n, selected_sensor, start_date, end_date):
         
         return [], None, error_msg, empty_fig, f"Error en: {current_time}"
 
+# Callback para actualizaciones de pestaña de estado
+@app.callback(
+    [Output('health-summary-cards', 'children'),
+     Output('sensor-health-table', 'children'),
+     Output('health-last-update', 'children')],
+    [Input('interval-component', 'n_intervals')]
+)
+def update_health_dashboard(n):
+    try:
+        health_data = get_sensor_health_status()
+        
+        if health_data['status'] == 'no_data':
+            no_data_msg = html.Div([
+                html.H2("No Hay Datos Disponibles", style={'color': '#e74c3c', 'textAlign': 'center'}),
+                html.P("Ejecute 'python fetch_piloto_files.py' para descargar datos", 
+                       style={'textAlign': 'center', 'color': '#7f8c8d'})
+            ], style={
+                'background': '#ecf0f1',
+                'padding': '40px',
+                'borderRadius': '10px',
+                'textAlign': 'center',
+                'border': '2px dashed #bdc3c7'
+            })
+            
+            return no_data_msg, no_data_msg, f"Última verificación: {health_data['last_update']}"
+        
+        if health_data['status'] == 'error':
+            error_msg = html.Div([
+                html.H2("Error de Datos", style={'color': '#e74c3c', 'textAlign': 'center'}),
+                html.P("Hubo un error procesando los datos de estado de sensores.", 
+                       style={'textAlign': 'center', 'color': '#7f8c8d'})
+            ], style={
+                'background': '#f8d7da',
+                'border': '1px solid #f5c6cb',
+                'color': '#721c24',
+                'padding': '20px',
+                'borderRadius': '5px',
+                'textAlign': 'center'
+            })
+            
+            return error_msg, error_msg, f"Error en: {health_data['last_update']}"
+        
+        # Caso normal con datos
+        summary = health_data['summary']
+        
+        # Tarjetas de resumen
+        summary_cards = html.Div([
+            html.Div([
+                html.Div([
+                    html.H2(str(summary['healthy']), style={'margin': '0', 'color': '#27ae60'}),
+                    html.P("Sensores Saludables", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
+                ], className='stat-card'),
+                
+                html.Div([
+                    html.H2(str(summary['warning']), style={'margin': '0', 'color': '#f39c12'}),
+                    html.P("En Advertencia", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
+                ], className='stat-card'),
+                
+                html.Div([
+                    html.H2(str(summary['critical']), style={'margin': '0', 'color': '#e74c3c'}),
+                    html.P("Estado Crítico", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
+                ], className='stat-card'),
+                
+                html.Div([
+                    html.H2(f"{summary['healthy_percentage']}%", style={'margin': '0', 'color': '#2c3e50'}),
+                    html.P("Sensores Funcionando Hoy", style={'margin': '5px 0 0 0', 'color': '#7f8c8d'})
+                ], className='stat-card')
+            ], style={
+                'display': 'grid',
+                'gridTemplateColumns': 'repeat(auto-fit, minmax(200px, 1fr))',
+                'gap': '20px',
+                'margin': '20px 0'
+            })
+        ])
+        
+        # Tabla detallada
+        sensor_health = health_data['sensor_health']
+        table_rows = []
+        
+        # Encabezado de tabla
+        table_header = html.Tr([
+            html.Th("Sensor ID", style={'padding': '12px', 'textAlign': 'left', 'background': '#f8f9fa'}),
+            html.Th("Estado", style={'padding': '12px', 'textAlign': 'left', 'background': '#f8f9fa'}),
+            html.Th("Últimos Datos", style={'padding': '12px', 'textAlign': 'left', 'background': '#f8f9fa'}),
+            html.Th("Archivos Totales", style={'padding': '12px', 'textAlign': 'left', 'background': '#f8f9fa'}),
+            html.Th("Archivos Vacíos", style={'padding': '12px', 'textAlign': 'left', 'background': '#f8f9fa'}),
+            html.Th("Funcionando Hoy", style={'padding': '12px', 'textAlign': 'left', 'background': '#f8f9fa'})
+        ])
+        
+        # Filas de datos
+        for sensor_id in sorted(sensor_health.keys()):
+            health = sensor_health[sensor_id]
+            
+            status_colors = {
+                'healthy': '#d4edda',
+                'warning': '#fff3cd', 
+                'critical': '#f8d7da'
+            }
+            
+            status_text_colors = {
+                'healthy': '#155724',
+                'warning': '#856404',
+                'critical': '#721c24'
+            }
+            
+            table_rows.append(html.Tr([
+                html.Td(f"Sensor {sensor_id}", style={'padding': '12px'}),
+                html.Td(
+                    html.Span(health['status'].title(), 
+                             style={
+                                 'padding': '4px 8px',
+                                 'borderRadius': '4px',
+                                 'background': status_colors[health['status']],
+                                 'color': status_text_colors[health['status']],
+                                 'fontSize': '0.9em'
+                             }),
+                    style={'padding': '12px'}
+                ),
+                html.Td(
+                    health['last_data_date'].strftime('%Y-%m-%d') if health['last_data_date'] else 'Sin datos',
+                    style={'padding': '12px'}
+                ),
+                html.Td(str(health['total_files']), style={'padding': '12px'}),
+                html.Td(str(health['empty_files']), style={'padding': '12px'}),
+                html.Td(
+                    "✓" if health['working_today'] else "✗",
+                    style={
+                        'padding': '12px',
+                        'color': '#27ae60' if health['working_today'] else '#e74c3c',
+                        'fontWeight': 'bold'
+                    }
+                )
+            ]))
+        
+        health_table = html.Div([
+            html.H2("Detalle de Estado de Sensores", style={'color': '#2c3e50', 'marginBottom': '20px'}),
+            html.Table([
+                html.Thead([table_header]),
+                html.Tbody(table_rows)
+            ], style={
+                'width': '100%',
+                'borderCollapse': 'collapse',
+                'border': '1px solid #dee2e6'
+            })
+        ])
+        
+        last_update = f"Última verificación: {health_data['last_update']}"
+        
+        return summary_cards, health_table, last_update
+        
+    except Exception as e:
+        print(f"Error actualizando dashboard de estado: {e}")
+        error_msg = html.Div([
+            html.H2("Error", style={'color': '#e74c3c'}),
+            html.P(f"Error inesperado: {str(e)}")
+        ])
+        return error_msg, error_msg, f"Error en: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+
 # CSS personalizado
 app.index_string = '''
 <!DOCTYPE html>
@@ -856,6 +1253,7 @@ if __name__ == '__main__':
     print("Características:")
     print("   - Resumen General (Pestaña 1)")
     print("   - Análisis de Sensor Específico (Pestaña 2)")
+    print("   - Estado de Sensores (Pestaña 3)")
     print()
     print("Presione Ctrl+C para detener el servidor")
     print("-" * 60)
