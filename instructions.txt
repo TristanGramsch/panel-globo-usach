@@ -1,0 +1,19 @@
+Your task is to develop a software repository.
+The client: Ernesto Gramsch. USACH University professor and pollution expert.
+Client need: To check that sensors are properly working. The client phisically goes to clean and repair sensors (or sends someone). It would be great to know when to go. And what sensor is a priority. Do sensors show erratic behavior? 
+
+Problem? 
+
+Find a solution. 
+
+
+Monitor the directory at http://ambiente.usach.cl/globo/ to discover all available sensor files (each file named Piloto*.dat corresponds to a different sensor).
+Each .dat file is updated throughout the day with new data as the day progresses.
+Our task is to create a dashboard that displays the MP1.0 (particulate matter) readings:
+	For each sensor
+	Both for the current day (live/daily view)
+	And historically (across all days)
+The server is unreliable and frequently goes down.
+We must regularly ping the server to check its availability.
+We are to save the entire .dat files for each sensor locally. How can we check completness?
+We need to add logic to handle empty files (e.g., skip parsing but still save them, and log or alert if a file is empty).
