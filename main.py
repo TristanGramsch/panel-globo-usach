@@ -601,12 +601,19 @@ class USACHMonitoringApp:
              Input('interval-component', 'n_intervals')]
         )
         def update_tab_content(active_tab, n):
+            """Actualizar contenido de pestañas - callback principal"""
             try:
+                # Ensure we have valid inputs
+                if active_tab is None:
+                    active_tab = 'tab-general'
+                if n is None:
+                    n = 0
+                
                 last_update_text = f"Última actualización: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
                 
                 if active_tab == 'tab-general':
                     # Resumen General Tab - exactly like previous Spanish dashboard
-                    return html.Div([
+                    content = html.Div([
                         # Gráficos
                         html.Div([
                             html.Div([
@@ -624,128 +631,82 @@ class USACHMonitoringApp:
                             ], style={'width': '100%', 'margin': '20px 0'})
                         ]),
                         
-                        # Detalles de sensores
-                        html.Div(id='sensor-details', style={'margin': '20px 0'}),
+                        # Detalles de sensores para el tab general
+                        self.create_general_sensor_details(),
                         
                         # Resumen de estado de sensores
                         html.Div([
                             html.H3("Estado de Sensores Hoy", style={'color': '#2c3e50'}),
-                            html.Div(id="sensor-status-summary")
+                            self.create_sensor_status_summary()
                         ])
-                    ]), last_update_text
+                    ])
+                    return content, last_update_text
                 
                 elif active_tab == 'tab-sensor':
                     # Análisis de Sensor Específico Tab - exactly like previous Spanish dashboard
-                    available_sensors = get_available_sensors()
-                    return html.Div([
-                        html.H3("Análisis de Sensor Específico", style={'color': '#2c3e50', 'marginBottom': '20px'}),
-                        html.Div([
-                            html.Label("Seleccionar Sensor:", style={'fontWeight': 'bold', 'marginBottom': '5px', 'display': 'block'}),
-                            dcc.Dropdown(
-                                id='sensor-dropdown',
-                                options=[{'label': f'Sensor {s}', 'value': s} for s in available_sensors],
-                                value=available_sensors[0] if available_sensors else None,
-                                placeholder="Elegir un sensor...",
-                                style={'marginBottom': '20px'}
-                            )
-                        ], style={'width': '48%', 'display': 'inline-block', 'verticalAlign': 'top'}),
-                        dcc.Graph(id="sensor-specific-chart"),
-                        html.Div(id="sensor-details")
-                    ]), last_update_text
+                    try:
+                        available_sensors = get_available_sensors()
+                        content = html.Div([
+                            html.H3("Análisis de Sensor Específico", style={'color': '#2c3e50', 'marginBottom': '20px'}),
+                            html.Div([
+                                html.Label("Seleccionar Sensor:", style={'fontWeight': 'bold', 'marginBottom': '5px', 'display': 'block'}),
+                                dcc.Dropdown(
+                                    id='sensor-dropdown',
+                                    options=[{'label': f'Sensor {s}', 'value': s} for s in available_sensors],
+                                    value=available_sensors[0] if available_sensors else None,
+                                    placeholder="Elegir un sensor...",
+                                    style={'marginBottom': '20px'}
+                                )
+                            ], style={'width': '48%', 'display': 'inline-block', 'verticalAlign': 'top'}),
+                            dcc.Graph(id="sensor-specific-chart"),
+                            html.Div(id="sensor-specific-details")
+                        ])
+                        return content, last_update_text
+                    except Exception as e:
+                        logger.error(f"Error creando pestaña de sensor específico: {e}")
+                        content = html.Div([
+                            html.H3("Análisis de Sensor Específico", style={'color': '#2c3e50'}),
+                            html.P(f"Error cargando sensores: {str(e)}", style={'color': '#e74c3c'})
+                        ])
+                        return content, last_update_text
                 
                 elif active_tab == 'tab-health':
                     # Salud de Sensores Tab - new tab for maintenance
-                    return html.Div([
-                        html.H3("Salud de Sensores y Resumen de Mantenimiento", style={'color': '#2c3e50'}),
-                        html.P("Monitorear estado operacional de sensores y calidad de datos para planificación de mantenimiento"),
-                        self.create_sensor_health_overview()
-                    ]), last_update_text
+                    try:
+                        content = html.Div([
+                            html.H3("Salud de Sensores y Resumen de Mantenimiento", style={'color': '#2c3e50'}),
+                            html.P("Monitorear estado operacional de sensores y calidad de datos para planificación de mantenimiento"),
+                            self.create_sensor_health_overview()
+                        ])
+                        return content, last_update_text
+                    except Exception as e:
+                        logger.error(f"Error creando pestaña de salud de sensores: {e}")
+                        content = html.Div([
+                            html.H3("Salud de Sensores", style={'color': '#2c3e50'}),
+                            html.P(f"Error cargando salud de sensores: {str(e)}", style={'color': '#e74c3c'})
+                        ])
+                        return content, last_update_text
+                
+                else:
+                    # Default fallback
+                    content = html.Div([
+                        html.H3("Panel no disponible", style={'color': '#e74c3c'}),
+                        html.P("Pestaña no reconocida. Seleccione una pestaña válida.")
+                    ])
+                    return content, last_update_text
                 
             except Exception as e:
-                logger.error(f"Error actualizando contenido de pestaña: {e}")
-                return html.Div([
+                logger.error(f"Error crítico actualizando contenido de pestaña: {e}")
+                error_content = html.Div([
                     html.H4("Error de Contenido de Pestaña", style={'color': '#e74c3c'}),
                     html.P(f"Error: {str(e)}")
-                ]), f"Error: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
-        
-        @self.app.callback(
-            [Output('sensor-status-summary', 'children')],
-            [Input('interval-component', 'n_intervals')]
-        )
-        def update_sensor_status_summary(n):
-            try:
-                sensor_status = self.get_sensor_status_today()
-                return [html.Div([
-                    html.Div([
-                        html.H4(f"Funcionando Hoy ({len(sensor_status['working'])})", style={'color': '#27ae60'}),
-                        html.P(", ".join([f"Sensor {s}" for s in sensor_status["working"]]) or "Ninguno"),
-                    ], style={'width': '48%', 'display': 'inline-block', 'verticalAlign': 'top', 'padding': '15px', 'background': '#d5f4e6', 'borderRadius': '5px', 'margin': '5px'}),
-                    
-                    html.Div([
-                        html.H4(f"No Funcionando Hoy ({len(sensor_status['not_working'])})", style={'color': '#e74c3c'}),
-                        html.P(", ".join([f"Sensor {s}" for s in sensor_status["not_working"]]) or "Ninguno"),
-                    ], style={'width': '48%', 'display': 'inline-block', 'verticalAlign': 'top', 'padding': '15px', 'background': '#fadbd8', 'borderRadius': '5px', 'margin': '5px'})
-                ])]
-            except Exception as e:
-                logger.error(f"Error actualizando resumen de estado de sensores: {e}")
-                return [html.Div("Error cargando estado de sensores")]
-        
-        @self.app.callback(
-            [Output('sensor-details', 'children')],
-            [Input('interval-component', 'n_intervals')]
-        )
-        def update_sensor_details(n):
-            try:
-                current_data = get_current_data()
-                
-                if current_data.empty:
-                    return [html.Div([
-                        html.H3("Detalles de Sensores", style={'color': '#2c3e50'}),
-                        html.P("No hay datos de sensores disponibles.", style={'color': '#7f8c8d', 'fontStyle': 'italic'})
-                    ])]
-                
-                # Create sensor detail cards
-                available_sensors = get_available_sensors()
-                sensor_cards = []
-                
-                for sensor_id in available_sensors[:6]:  # Show first 6 sensors
-                    sensor_data = get_sensor_data(sensor_id)
-                    
-                    if not sensor_data.empty:
-                        avg_mp1 = sensor_data['MP1'].mean()
-                        latest_reading = sensor_data['MP1'].iloc[-1]
-                        data_points = len(sensor_data)
-                        category, color, risk = get_air_quality_category(avg_mp1)
-                        
-                        card = html.Div([
-                            html.H4(f"Sensor {sensor_id}", style={'margin': '0 0 10px 0', 'color': '#2c3e50'}),
-                            html.P(f"Última Lectura: {latest_reading:.1f} μg/m³", style={'margin': '5px 0'}),
-                            html.P(f"Promedio: {avg_mp1:.1f} μg/m³", style={'margin': '5px 0'}),
-                            html.P(f"Puntos de Datos: {data_points}", style={'margin': '5px 0'}),
-                            html.P(f"Estado: {category}", style={'margin': '5px 0', 'color': color, 'fontWeight': 'bold'})
-                        ], style={
-                            'background': '#fff',
-                            'padding': '15px',
-                            'borderRadius': '8px',
-                            'boxShadow': '0 2px 4px rgba(0,0,0,0.1)',
-                            'margin': '10px',
-                            'width': '300px',
-                            'display': 'inline-block',
-                            'verticalAlign': 'top'
-                        })
-                        sensor_cards.append(card)
-                
-                return [html.Div([
-                    html.H3("Detalles de Sensores", style={'color': '#2c3e50', 'marginBottom': '20px'}),
-                    html.Div(sensor_cards, style={'textAlign': 'center'})
-                ])]
-            except Exception as e:
-                logger.error(f"Error actualizando detalles de sensores: {e}")
-                return [html.Div("Error cargando detalles de sensores")]
+                ])
+                error_time = f"Error: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
+                return error_content, error_time
         
         @self.app.callback(
             [Output('sensor-specific-chart', 'figure'),
-             Output('sensor-details', 'children')],
+             Output('sensor-specific-details', 'children')],
             [Input('sensor-dropdown', 'value')]
         )
         def update_sensor_specific(selected_sensor):
@@ -777,9 +738,79 @@ class USACHMonitoringApp:
                 
                 return chart, details
             except Exception as e:
-                logger.error(f"Error actualizando vista específica de sensor: {e}")
+                logger.error(f"Error actualizando sensor específico: {e}")
                 empty_fig = go.Figure()
+                empty_fig.add_annotation(text=f"Error: {str(e)}", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
                 return empty_fig, html.P(f"Error: {str(e)}")
+
+    def create_general_sensor_details(self):
+        """Crear detalles de sensores para el tab general"""
+        try:
+            current_data = get_current_data()
+            
+            if current_data.empty:
+                return html.Div([
+                    html.H3("Detalles de Sensores", style={'color': '#2c3e50'}),
+                    html.P("No hay datos de sensores disponibles.", style={'color': '#7f8c8d', 'fontStyle': 'italic'})
+                ])
+            
+            # Create sensor detail cards
+            available_sensors = get_available_sensors()
+            sensor_cards = []
+            
+            for sensor_id in available_sensors[:6]:  # Show first 6 sensors
+                sensor_data = get_sensor_data(sensor_id)
+                
+                if not sensor_data.empty:
+                    avg_mp1 = sensor_data['MP1'].mean()
+                    latest_reading = sensor_data['MP1'].iloc[-1]
+                    data_points = len(sensor_data)
+                    category, color, risk = get_air_quality_category(avg_mp1)
+                    
+                    card = html.Div([
+                        html.H4(f"Sensor {sensor_id}", style={'margin': '0 0 10px 0', 'color': '#2c3e50'}),
+                        html.P(f"Última Lectura: {latest_reading:.1f} μg/m³", style={'margin': '5px 0'}),
+                        html.P(f"Promedio: {avg_mp1:.1f} μg/m³", style={'margin': '5px 0'}),
+                        html.P(f"Puntos de Datos: {data_points}", style={'margin': '5px 0'}),
+                        html.P(f"Estado: {category}", style={'margin': '5px 0', 'color': color, 'fontWeight': 'bold'})
+                    ], style={
+                        'background': '#fff',
+                        'padding': '15px',
+                        'borderRadius': '8px',
+                        'boxShadow': '0 2px 4px rgba(0,0,0,0.1)',
+                        'margin': '10px',
+                        'width': '300px',
+                        'display': 'inline-block',
+                        'verticalAlign': 'top'
+                    })
+                    sensor_cards.append(card)
+            
+            return html.Div([
+                html.H3("Detalles de Sensores", style={'color': '#2c3e50', 'marginBottom': '20px'}),
+                html.Div(sensor_cards, style={'textAlign': 'center'})
+            ])
+        except Exception as e:
+            logger.error(f"Error creando detalles de sensores generales: {e}")
+            return html.Div("Error cargando detalles de sensores")
+
+    def create_sensor_status_summary(self):
+        """Crear resumen de estado de sensores"""
+        try:
+            sensor_status = self.get_sensor_status_today()
+            return html.Div([
+                html.Div([
+                    html.H4(f"Funcionando Hoy ({len(sensor_status['working'])})", style={'color': '#27ae60'}),
+                    html.P(", ".join([f"Sensor {s}" for s in sensor_status["working"]]) or "Ninguno"),
+                ], style={'width': '48%', 'display': 'inline-block', 'verticalAlign': 'top', 'padding': '15px', 'background': '#d5f4e6', 'borderRadius': '5px', 'margin': '5px'}),
+                
+                html.Div([
+                    html.H4(f"No Funcionando Hoy ({len(sensor_status['not_working'])})", style={'color': '#e74c3c'}),
+                    html.P(", ".join([f"Sensor {s}" for s in sensor_status["not_working"]]) or "Ninguno"),
+                ], style={'width': '48%', 'display': 'inline-block', 'verticalAlign': 'top', 'padding': '15px', 'background': '#fadbd8', 'borderRadius': '5px', 'margin': '5px'})
+            ])
+        except Exception as e:
+            logger.error(f"Error creando resumen de estado de sensores: {e}")
+            return html.Div("Error cargando estado de sensores")
     
     def run(self):
         """Ejecutar la aplicación del panel"""
