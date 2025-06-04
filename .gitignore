@@ -16,29 +16,26 @@ parts/
 sdist/
 var/
 wheels/
-share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
 MANIFEST
 
 # Virtual environments
-piloto_env/
 venv/
-ENV/
 env/
+ENV/
 .venv/
+.env
 
 # Data files (downloaded dynamically)
 piloto_data/*.dat
-piloto_data/
 
 # Logs (generated at runtime)
 logs/
 *.log
 
 # Generated files
-air_quality_analysis.png
 *.png
 *.jpg
 *.jpeg
@@ -72,10 +69,6 @@ tmp/
 .env.development.local
 .env.test.local
 .env.production.local
-
-# Flask specific
-instance/
-.webassets-cache
 
 # Jupyter Notebook
 .ipynb_checkpoints

@@ -1,220 +1,280 @@
 # USACH Environmental Monitoring System
 
-A robust Python-based system for monitoring environmental sensor data from the USACH server, with comprehensive air quality analysis and visualization capabilities.
+A minimal, production-ready system for monitoring air quality sensors throughout Chile. This system automatically fetches sensor data, provides real-time dashboard visualization with **three specialized tabs**, and tracks sensor health for maintenance planning.
 
-## 🌟 Features
+## 🎯 Purpose
 
-### Data Collection
-- **Smart File Management**: Automatically downloads only new or updated Piloto*.dat files
-- **Robust Error Handling**: Gracefully handles server timeouts, network issues, and malformed responses
-- **Comprehensive Logging**: Detailed logs of all operations with timestamps
-- **File Integrity Checking**: Detects and logs empty files from server
-- **Automatic Organization**: Files organized by date in dedicated directories
+**Client**: Professor Ernesto Gramsch, USACH University  
+**Goal**: Monitor pollution sensors to determine maintenance priorities and sensor health status
 
-### Air Quality Analysis
-- **MP1.0 Particulate Matter Analysis**: Comprehensive analysis of fine particulate matter levels
-- **WHO Guidelines Compliance**: Automatic categorization based on World Health Organization air quality standards
-- **Multi-Sensor Support**: Handles different sensor data formats automatically
-- **Statistical Analysis**: Detailed statistics including averages, ranges, and time distributions
-- **Health Risk Assessment**: Real-time health risk categorization and recommendations
+## ✨ Key Features
 
-### Visualization & Monitoring
-- **Interactive Dashboard**: Real-time air quality status with color-coded alerts
-- **Comprehensive Charts**: Time series, box plots, and comparative visualizations
-- **Health Alerts**: Automatic alerts for unhealthy air quality levels
-- **Data Coverage Analysis**: Monitor sensor performance and data availability
+### 🔄 Automatic Data Management
+- **Continuous data fetching** from `http://ambiente.usach.cl/globo/` every 10 minutes
+- **Smart file management** - downloads only new/updated sensor files
+- **Server health monitoring** with automatic retry logic
+- **Robust error handling** for unreliable server connections
 
-## 📊 Air Quality Categories (WHO Guidelines)
+### 📊 Three-Tab Dashboard Interface
+1. **General Overview Tab**: Live air quality monitoring with WHO guideline compliance for all sensors
+2. **Sensor Specific Tab**: Detailed analysis and charts for individual sensors
+3. **Sensor Health Tab**: Comprehensive maintenance overview and sensor status tracking
 
-| Level | Range (μg/m³) | Health Risk | Color Code |
-|-------|---------------|-------------|------------|
-| Good | ≤15 | Very low | 🟢 Green |
-| Moderate | 15-25 | Low | 🟡 Yellow |
-| Unhealthy for Sensitive | 25-35 | Moderate | 🟠 Orange |
-| Unhealthy | 35-75 | High | 🔴 Red |
-| Very Unhealthy | >75 | Very high | 🟣 Purple |
+### 🔧 Sensor Health Monitoring
+- **Daily operational status** for each sensor with detailed metrics
+- **Data completeness tracking** and quality assessment
+- **Maintenance priority indicators** with data points count
+- **Historical performance analysis** with last reading timestamps
 
 ## 🚀 Quick Start
 
+### Prerequisites
+- Python 3.11+
+- Conda (recommended) or pip
+
 ### Installation
 
-1. **Clone or download the project files**
-2. **Create a virtual environment** (recommended):
-   ```bash
-   python -m venv piloto_env
-   source piloto_env/bin/activate  # On Windows: piloto_env\Scripts\activate
-   ```
-3. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
+#### Option 1: Conda (Recommended)
+```bash
+# Clone the repository
+git clone <repository-url>
+cd panel-globo-usach
 
-### Basic Usage
+# Create conda environment
+conda env create -f environment.yml
+conda activate usach-monitor
 
-1. **Download current data**:
-   ```bash
-   python fetch_piloto_files.py
-   ```
+# Run the application
+python main.py
+```
 
-2. **View air quality dashboard**:
-   ```bash
-   python dashboard.py
-   ```
+#### Option 2: pip
+```bash
+# Clone the repository
+git clone <repository-url>
+cd panel-globo-usach
 
-3. **Generate detailed analysis**:
-   ```bash
-   python analyze_mp1_data.py
-   ```
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-4. **Create visualizations**:
-   ```bash
-   python visualize_air_quality.py
-   ```
+# Install dependencies
+pip install -r requirements.txt
 
-## 📁 Project Structure
+# Run the application
+python main.py
+```
+
+### Access Dashboard
+Open your browser and navigate to: **http://localhost:8050**
+
+## 📁 Project Structure (Minimal)
 
 ```
 panel-globo-usach/
-├── fetch_piloto_files.py      # Main data fetcher
-├── analyze_mp1_data.py        # Air quality analysis engine
-├── visualize_air_quality.py   # Visualization generator
-├── dashboard.py               # Real-time monitoring dashboard
-├── test_fetcher.py           # Test suite
-├── requirements.txt          # Python dependencies
-├── README.md                 # This file
-├── piloto_data/              # Downloaded data files
-├── logs/                     # Operation logs
-└── air_quality_analysis.png  # Generated visualization
+├── main.py                    # 🎯 Single entry point - runs everything
+├── environment.yml            # 📦 Conda environment specification
+├── requirements.txt           # 📦 pip dependencies (minimal)
+├── README.md                  # 📖 This documentation
+│
+├── config/
+│   └── settings.py           # ⚙️ All configuration settings
+│
+├── data/
+│   ├── fetch_piloto_files.py # 📡 Data fetching from server
+│   └── processors.py         # 🔄 Data parsing and processing
+│
+├── utils/
+│   └── helpers.py            # 🛠️ Utility functions
+│
+├── piloto_data/              # 📊 Downloaded sensor data (auto-created)
+└── logs/                     # 📝 Application logs (auto-created)
 ```
 
 ## 🔧 Configuration
 
-### Server Settings
-The system connects to: `http://www.aire.usach.cl/Piloto/`
+### Key Settings (config/settings.py)
+- **Data refresh interval**: 10 minutes
+- **Dashboard port**: 8050
+- **WHO air quality guidelines**: Built-in compliance checking
+- **Server URL**: `http://ambiente.usach.cl/globo/`
 
-### File Patterns
-- Downloads files matching: `Piloto*.dat`
-- Focuses on current month data
-- Handles both detailed and simplified sensor formats
+### Environment Variables
+No environment variables required - all settings are in `config/settings.py`
 
-### Logging
-- Logs stored in `logs/` directory
-- Automatic log rotation
-- Configurable log levels
+## 📊 Dashboard Features
 
-## 📈 Analysis Capabilities
+### Tab 1: General Overview
+- **Status Overview Cards**: Average MP1.0, maximum readings, sensor count, last update
+- **Multi-sensor Chart**: Real-time trends for all sensors with WHO reference lines
+- **Daily Status Summary**: Working vs non-working sensors for today
 
-### Supported Metrics
-- **MP1.0 Particulate Matter**: Fine particles (≤1.0 μm)
-- **Temperature & Humidity**: Environmental conditions
-- **Atmospheric Pressure**: Barometric readings
-- **Wind Data**: Direction and speed
-- **CO2 Levels**: Carbon dioxide concentrations
+### Tab 2: Sensor Specific Analysis
+- **Sensor Selection Dropdown**: Choose any available sensor for detailed analysis
+- **Individual Sensor Charts**: High-resolution time series with markers
+- **Detailed Statistics**: Data range, point count, min/max/average values
+- **WHO Compliance Tracking**: Visual guidelines for selected sensor
 
-### Data Processing
-- Automatic column detection for different sensor formats
-- Handles both `MP1.0[St.P]` and `MP1.0` column formats
-- Robust datetime parsing
-- Missing data handling
+### Tab 3: Sensor Health & Maintenance
+- **Comprehensive Health Table**: All sensors with detailed status
+- **Maintenance Indicators**: 
+  - **Status**: Working/Not Working today
+  - **Data Points Today**: Count of readings received
+  - **Last Reading**: Timestamp of most recent data
+  - **Average MP1.0**: Overall sensor performance
+  - **Data Quality**: Excellent/Good/Fair/Poor/No Data
+- **Priority Ranking**: Visual indicators for sensors requiring attention
 
-## 🖥️ Dashboard Features
+## 🔄 How It Works
 
-The dashboard provides:
-- **Real-time Status**: Current air quality level with color coding
-- **Critical Alerts**: Immediate warnings for dangerous pollution levels
-- **Sensor Rankings**: Identification of most polluted areas
-- **Health Recommendations**: WHO-based guidance for outdoor activities
-- **Data Freshness**: Information about last update times
+### 1. Automatic Data Collection
+- Application starts background thread for data fetching
+- Every 10 minutes: checks server health and downloads new/updated files
+- Handles server outages gracefully with retry logic
+- Logs all operations for monitoring
 
-## 📊 Visualization Options
+### 2. Real-Time Processing
+- Parses downloaded `.dat` files automatically
+- Extracts MP1.0 particulate matter readings
+- Organizes data by sensor and timestamp
+- Validates data completeness
 
-Generated charts include:
-- **Time Series**: Pollution trends over time for all sensors
-- **Box Plots**: Distribution comparison between sensors
-- **Bar Charts**: Average pollution levels by sensor
-- **Coverage Analysis**: Data availability and sensor performance
+### 3. Three-Tab Dashboard Updates
+- **All tabs refresh** every 10 minutes automatically
+- **General tab** shows live data as it becomes available
+- **Sensor tab** updates when sensor selection changes
+- **Health tab** tracks which sensors provided data today
 
-## 🔍 Example Analysis Output
+## 🚨 Sensor Status Logic
 
-```
-SENSOR RANKINGS BY AVERAGE MP1.0
-============================================================
- 1. Sensor 100:  145.2 μg/m³ (721 points) - 🟣 VERY UNHEALTHY
- 2. Sensor 078:   77.6 μg/m³ (879 points) - 🟣 VERY UNHEALTHY  
- 3. Sensor 013:   73.6 μg/m³ (871 points) - 🔴 UNHEALTHY
- 4. Sensor 052:   48.5 μg/m³ (859 points) - 🔴 UNHEALTHY
- 5. Sensor 023:   20.6 μg/m³ (844 points) - 🟡 MODERATE
-```
+### "Working Today" Criteria
+A sensor is considered "working today" if:
+- It has provided at least one data point today
+- The data file is not empty
+- The data is parseable and valid
 
-## 🚨 Health Alerts
+### "Not Working Today" Criteria
+A sensor needs attention if:
+- No data received today
+- Data file is empty or corrupted
+- Parsing errors occur
 
-The system automatically generates alerts:
-- **🚨 CRITICAL**: Very unhealthy levels (>75 μg/m³)
-- **⚠️ WARNING**: Unhealthy levels (35-75 μg/m³)
-- **📋 RECOMMENDATIONS**: Activity guidance based on current conditions
-
-## 🔄 Automation
-
-### Scheduled Updates
-Set up automatic data collection with cron (Linux/Mac) or Task Scheduler (Windows):
-
-```bash
-# Update data every hour
-0 * * * * /path/to/piloto_env/bin/python /path/to/fetch_piloto_files.py
-```
-
-### Continuous Monitoring
-For real-time monitoring, run the dashboard periodically or integrate with monitoring systems.
-
-## 🛠️ Troubleshooting
-
-### Common Issues
-
-1. **No data downloaded**:
-   - Check internet connection
-   - Verify server accessibility
-   - Review logs in `logs/` directory
-
-2. **Analysis errors**:
-   - Ensure data files exist in `piloto_data/`
-   - Check file formats and encoding
-   - Verify pandas installation
-
-3. **Visualization problems**:
-   - Install matplotlib: `pip install matplotlib`
-   - Check display settings for headless systems
-   - Verify file permissions
-
-### Debug Mode
-Enable verbose logging by modifying the logging level in the scripts.
+### Data Quality Assessment
+- **Excellent**: 100+ data points today
+- **Good**: 50-99 data points today
+- **Fair**: 10-49 data points today
+- **Poor**: 1-9 data points today
+- **No Data**: 0 data points today
 
 ## 📝 Logging
 
-All operations are logged with:
-- **Timestamps**: Precise operation timing
-- **Status Codes**: HTTP response tracking
-- **File Operations**: Download and processing status
-- **Error Details**: Comprehensive error information
+### Log Files
+- **Main application**: `logs/main_application.log`
+- **Data fetching**: `logs/piloto_fetcher_YYYYMMDD.log`
 
-Log files are automatically rotated and stored in the `logs/` directory.
+### Log Information
+- Data fetch operations and results
+- Server health status
+- Processing errors and warnings
+- Dashboard update cycles
+- Tab-specific operations
 
-## 🔮 Future Enhancements
+## 🔧 Troubleshooting
 
-- **Web Dashboard**: Browser-based real-time monitoring
-- **Database Integration**: Long-term data storage and analysis
-- **Alert System**: Email/SMS notifications for critical conditions
-- **Mobile App**: Smartphone access to air quality data
-- **Predictive Analytics**: Machine learning for pollution forecasting
-- **Multi-Location Support**: Expansion to other monitoring networks
+### Common Issues
 
-## 📄 License
+#### No Data Displayed
+```bash
+# Check if data directory exists and has files
+ls -la piloto_data/
 
-This project is open source and available under the MIT License.
+# Check recent logs
+tail -f logs/main_application.log
+```
 
-## 🤝 Contributing
+#### Server Connection Issues
+- Server `ambiente.usach.cl` is frequently unreliable
+- Application automatically retries failed connections
+- Check logs for server health status
 
-Contributions are welcome! Please feel free to submit pull requests or open issues for bugs and feature requests.
+#### Dashboard Not Updating
+- Dashboard auto-refreshes every 10 minutes across all tabs
+- Force refresh with browser reload (Ctrl+F5)
+- Check background data fetching in logs
 
-## 📞 Support
+#### Tab-Specific Issues
+- **General tab**: Check if multiple sensors have data
+- **Sensor tab**: Verify selected sensor has data files
+- **Health tab**: Check if sensor status calculation is working
 
-For questions or support, please open an issue in the project repository. 
+### Manual Data Fetch
+```bash
+# Force immediate data update
+python -c "from data.fetch_piloto_files import PilotoFileFetcher; PilotoFileFetcher().run_fetch_cycle()"
+```
+
+## 🚀 Production Deployment
+
+### Server Requirements
+- Python 3.11+
+- 2GB RAM minimum
+- Stable internet connection
+- Port 8050 accessible
+
+### Deployment Steps
+1. Clone repository to server
+2. Create conda environment: `conda env create -f environment.yml`
+3. Activate environment: `conda activate usach-monitor`
+4. Run application: `python main.py`
+5. Access via server IP: `http://your-server-ip:8050`
+
+### Process Management (Optional)
+```bash
+# Using systemd (Linux)
+sudo systemctl enable usach-monitor
+sudo systemctl start usach-monitor
+
+# Using screen (simple)
+screen -S usach-monitor python main.py
+```
+
+## 📊 Data Format
+
+### Sensor Files
+- **Format**: `Piloto{ID}-{DDMMYY}.dat`
+- **Example**: `Piloto019-040625.dat` (Sensor 019, June 4, 2025)
+- **Content**: CSV with MP1.0 readings, timestamps, and metadata
+
+### Supported Sensors
+Currently monitoring sensors: 013, 019, 023, 048, 052, 057, 078, 081, 098, 100, 102
+
+## 🎨 Dashboard Navigation
+
+### Tab Usage Guide
+1. **Start with General Overview**: Get overall air quality status
+2. **Use Sensor Specific**: Investigate individual sensor performance
+3. **Check Sensor Health**: Plan maintenance visits and identify problems
+
+### Key Performance Indicators
+- **WHO Compliance**: Green/Orange/Red reference lines
+- **Operational Status**: Percentage of working sensors
+- **Data Quality**: Points per day indicator
+- **Maintenance Priority**: Red = immediate attention needed
+
+## 🤝 Support
+
+### For Technical Issues
+1. Check logs in `logs/` directory
+2. Verify server connectivity
+3. Ensure all dependencies are installed
+4. Check specific tab functionality
+
+### For Sensor Maintenance
+- Use **Sensor Health tab** "Not Working Today" list to prioritize field visits
+- Check **Data Quality** column to identify problematic sensors
+- Monitor **Data Points Today** to detect partial failures
+- Use **Last Reading** timestamps to identify silent failures
+
+---
+
+**🌍 USACH Environmental Monitoring System** - Helping protect air quality in Chile through intelligent sensor monitoring with comprehensive three-tab dashboard interface. 
