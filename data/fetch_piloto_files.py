@@ -302,6 +302,11 @@ class PilotoFileFetcher:
         
         return stats
 
+def fetch_piloto_files():
+    """Convenience function to run a fetch cycle"""
+    fetcher = PilotoFileFetcher()
+    return fetcher.run_fetch_cycle()
+
 def main():
     """Main execution function"""
     fetcher = PilotoFileFetcher()
