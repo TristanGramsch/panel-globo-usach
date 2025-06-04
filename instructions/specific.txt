@@ -1,0 +1,8 @@
+1. Implement a script or module to regularly fetch and save all Piloto*.dat files from the remote server, organizing them by date and sensor.
+2. Add logic to check server availability before each fetch, and log any downtime or connection issues.
+3. Ensure that empty or incomplete files are still saved, but are flagged in logs and excluded from analysis/visualization.
+4. Develop a dashboard view that displays MP1.0 readings for each sensor, with options for both daily (live) and historical data.
+5. Add a feature to indicate which sensors have provided data for the current day, and which have not (i.e., are not working or have not updated).
+6. Refactor the repository to remove unnecessary files, keeping only what is required for full functionality and Conda environment compatibility.
+7. Document all components and their purposes in the README, including a minimal setup guide and explanation of the dashboard features.
+8. Investigate and resolve the issue with data not refreshing as expected, ensuring the dashboard updates at the intended interval. 
