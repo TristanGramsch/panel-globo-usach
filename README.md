@@ -6,6 +6,21 @@ A web dashboard for monitoring air quality sensors in Chile. Displays real-time 
 
 ## 🚀 Quick Start
 
+### Prerequisites
+- **Conda** (recommended): Install [Miniconda](https://docs.conda.io/en/latest/miniconda.html) or [Anaconda](https://www.anaconda.com/products/distribution)
+- **Python 3.11+** (if using pip)
+
+### Option 1: Conda (Recommended)
+```bash
+# Setup
+conda env create -f environment.yml
+conda activate panel-globo-usach
+
+# Run dashboard
+python dashboard.py
+```
+
+### Option 2: pip (Alternative)
 ```bash
 # Setup
 python -m venv piloto_env
@@ -31,7 +46,8 @@ python dashboard.py
 ```
 panel-globo-usach/
 ├── dashboard.py              # Main dashboard application (Dash web app)
-├── requirements.txt          # Python dependencies
+├── environment.yml           # Conda environment specification (recommended)
+├── requirements.txt          # pip dependencies (alternative)
 ├── README.md                 # Project documentation
 ├── .gitignore               # Git ignore rules
 │
@@ -48,7 +64,7 @@ panel-globo-usach/
 ├── piloto_data/             # Sensor data files (.dat format)
 ├── logs/                    # Application and system logs
 ├── instructions/            # Project documentation and requirements
-└── piloto_env/             # Python virtual environment
+└── piloto_env/             # Python virtual environment (if using pip)
 ```
 
 ## 🔧 Configuration

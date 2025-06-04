@@ -1,0 +1,15 @@
+name: panel-globo-usach
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - requests>=2.31.0
+  - pandas>=2.0.0
+  - plotly>=5.15.0
+  - dash>=2.14.0
+  - dash-bootstrap-components>=1.4.0
+  - python-dateutil>=2.8.1
+  - pip
+  - pip:
+    # Add any pip-only packages here if needed 

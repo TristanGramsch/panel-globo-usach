@@ -1,12 +1,9 @@
+1
 Your task is to develop a software repository.
 The client: Ernesto Gramsch. USACH University professor and pollution expert.
-Client need: To check that sensors are properly working. The client phisically goes to clean and repair sensors (or sends someone). It would be great to know when to go. And what sensor is a priority. Do sensors show erratic behavior? 
+Client need: To check that sensors are properly working. The client phisically goes to clean and repair sensors (or sends someone). It would be great to know when to go. And what sensor is a priority. Do sensors show erratic behavior? Find a solution. 
 
-Problem? 
-
-Find a solution. 
-
-
+2
 Monitor the directory at http://ambiente.usach.cl/globo/ to discover all available sensor files (each file named Piloto*.dat corresponds to a different sensor).
 Each .dat file is updated throughout the day with new data as the day progresses.
 Our task is to create a dashboard that displays the MP1.0 (particulate matter) readings:
@@ -17,3 +14,12 @@ The server is unreliable and frequently goes down.
 We must regularly ping the server to check its availability.
 We are to save the entire .dat files for each sensor locally. How can we check completness?
 We need to add logic to handle empty files (e.g., skip parsing but still save them, and log or alert if a file is empty).
+
+3
+Alright, so here is the idea. This repository that you're looking at is a repository that produces a dashboard of censored data of pollution that my father has put throughout Chile. And students and other people put this data into a server that is very well-fetched currently and then puts all of this into a dashboard. The idea now is to make this repository as minimal as possible. That is, only have the most minimal things that are required, only the files that are required in order to run this project fully and use a Conda environment. Because what I'm going to do next is that I'm going to take this and I'm going to push it to a GitHub repository and I'm going to push it to a server. And pushing that to the server is going to allow me to host it for as long as needed. There's another thing happening that the server seems that it's not refreshing the data. So it says that it's going to be refreshing data every 10 minutes, but I think I don't see changes in the current dashboard. So that's a problem that's happening and the Conda environment, that's what we want. So the idea here is that we have to understand this repository fully and then see what things are not required such that we clean it completely. We make it minimal, we package it, and we host it on the server.
+
+4
+The other thing that my father requires is to know what sensors are working for the day. So what happens is that sensors stop working. And we need to know what sensors are working today and what sensors are not working today. So we're going to need to have a strategy in order to do so.
+
+5
+So, one of the main questions you need to solve is what are necessary files and what are not necessary files.Do not erase logs. Do not erase data.Then, you're going to need to explain what components do, very in a simple matter, and include that in the readme, and why they do it.
