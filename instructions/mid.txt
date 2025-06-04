@@ -1,0 +1,11 @@
+1. The project is for a USACH professor to monitor pollution sensors, helping decide when and where to perform maintenance based on sensor status and behavior.
+
+2. The system must monitor a remote directory for sensor data files, download and store them, and provide a dashboard showing MP1.0 readings for each sensor, both live and historically.
+
+3. The server is unreliable, so the system should regularly check its availability, save all sensor files locally, verify file completeness, and handle empty files by logging and alerting as needed.
+
+4. The repository should be minimal, containing only essential files for running the project with a Conda environment, to facilitate deployment and maintenance.
+
+5. There is an issue with data not refreshing as expected; the project needs to be cleaned, minimized, and packaged for reliable server hosting.
+
+6. The client needs to know which sensors are working each day, so the system should include a strategy to determine and display daily sensor status. 
