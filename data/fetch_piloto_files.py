@@ -123,11 +123,13 @@ class PilotoFileFetcher:
         return piloto_files
     
     def filter_current_month_files(self, files: List[Dict[str, str]]) -> List[Dict[str, str]]:
-        """Filter files to only include current month"""
+        """Filter files to only include current month with proper date validation"""
         current_date = get_chile_time()
         current_month_str = current_date.strftime("%m%y")
         
         current_month_files = []
+        invalid_dates_skipped = 0
+        
         for file_info in files:
             filename = file_info['filename']
             # Extract date from filename: Piloto{ID}-{DDMMYY}.dat
@@ -136,10 +138,30 @@ class PilotoFileFetcher:
                 date_str = match.group(1)
                 file_month_str = date_str[2:6]  # MMYY part
                 
+                # First check if it's the current month
                 if file_month_str == current_month_str:
-                    current_month_files.append(file_info)
+                    # Now validate the actual date
+                    try:
+                        day = int(date_str[:2])
+                        month = int(date_str[2:4])
+                        year = 2000 + int(date_str[4:6])
+                        
+                        # Try to create datetime - this will raise ValueError for invalid dates
+                        from datetime import datetime
+                        datetime(year, month, day)
+                        
+                        # If we get here, the date is valid
+                        current_month_files.append(file_info)
+                        
+                    except ValueError:
+                        # Invalid date (like June 31st) - skip it
+                        invalid_dates_skipped += 1
+                        self.logger.warning(f"Skipping file with invalid date: {filename}")
         
         self.logger.info(f"Filtered to {len(current_month_files)} files for current month ({current_month_str})")
+        if invalid_dates_skipped > 0:
+            self.logger.info(f"Skipped {invalid_dates_skipped} files with invalid dates")
+        
         return current_month_files
     
     def get_local_file_info(self, filename: str) -> Optional[Dict[str, any]]:
