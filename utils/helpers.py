@@ -8,7 +8,7 @@ import os
 import pandas as pd
 from datetime import datetime
 from pathlib import Path
-from config.settings import WHO_GUIDELINES, ERROR_MESSAGES
+from config.settings import WHO_GUIDELINES, ERROR_MESSAGES, format_chile_time
 
 def get_air_quality_category(avg_mp1):
     """
@@ -115,17 +115,17 @@ def create_directory_if_not_exists(directory_path):
 
 def format_timestamp(dt):
     """
-    Format datetime for display
+    Format datetime for display in Chile timezone
     
     Args:
         dt (datetime): Datetime object
         
     Returns:
-        str: Formatted timestamp string
+        str: Formatted timestamp string with Chile timezone
     """
     if dt is None:
         return "Unknown"
-    return dt.strftime('%Y-%m-%d %H:%M:%S')
+    return format_chile_time(dt)
 
 def calculate_time_span_hours(start_dt, end_dt):
     """

@@ -17,7 +17,7 @@ import logging
 
 # Importar desde nuestra estructura modular
 from data.processors import get_current_data, parse_piloto_file, get_sensor_data as get_sensor_data_processor
-from config.settings import WHO_GUIDELINES
+from config.settings import WHO_GUIDELINES, get_chile_time, format_chile_time, get_chile_date
 from utils.helpers import get_air_quality_category
 
 # Inicializar la aplicación Dash
@@ -121,10 +121,10 @@ def get_sensor_health_status():
         if not data_dir.exists():
             return {
                 'status': 'no_data',
-                'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                'last_update': format_chile_time()
             }
         
-        today = datetime.now()
+        today = get_chile_time()
         yesterday = today - timedelta(days=1)
         
         # Obtener todos los sensores únicos
@@ -199,30 +199,21 @@ def get_sensor_health_status():
             else:
                 health['status'] = 'critical'
         
-        # Calcular estadísticas generales
-        healthy_count = sum(1 for h in sensor_health.values() if h['status'] == 'healthy')
-        warning_count = sum(1 for h in sensor_health.values() if h['status'] == 'warning')
-        critical_count = sum(1 for h in sensor_health.values() if h['status'] == 'critical')
-        
         return {
-            'status': 'success',
-            'sensor_health': sensor_health,
-            'summary': {
-                'total_sensors': len(all_sensors),
-                'healthy': healthy_count,
-                'warning': warning_count,
-                'critical': critical_count,
-                'healthy_percentage': round((healthy_count / len(all_sensors)) * 100, 1) if all_sensors else 0
-            },
-            'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            'sensors': sensor_health,
+            'total_sensors': len(all_sensors),
+            'healthy_count': sum(1 for h in sensor_health.values() if h['status'] == 'healthy'),
+            'warning_count': sum(1 for h in sensor_health.values() if h['status'] == 'warning'),
+            'critical_count': sum(1 for h in sensor_health.values() if h['status'] == 'critical'),
+            'last_update': format_chile_time()
         }
         
     except Exception as e:
-        print(f"Error obteniendo estado de salud de sensores: {e}")
+        logging.error(f"Error in get_sensor_health_status: {e}")
         return {
             'status': 'error',
-            'error': str(e),
-            'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            'error_message': str(e),
+            'last_update': format_chile_time()
         }
 
 def create_sensor_health_plot(health_data):
@@ -456,7 +447,7 @@ def get_dashboard_stats():
         if current_data.empty:
             return {
                 'status': 'no_data',
-                'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                'last_update': format_chile_time()
             }
         
         # Calcular total de puntos de datos en todos los sensores
@@ -475,7 +466,7 @@ def get_dashboard_stats():
             'max_mp1': f"{current_data['MP1'].max():.1f}",
             'min_mp1': f"{current_data['MP1'].min():.1f}",
             'total_points': total_data_points,
-            'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            'last_update': format_chile_time()
         }
         
         return stats
@@ -484,7 +475,7 @@ def get_dashboard_stats():
         print(f"Error obteniendo estadísticas del panel: {e}")
         return {
             'status': 'error',
-            'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            'last_update': format_chile_time()
         }
 
 def get_sensor_stats(sensor_id, start_date=None, end_date=None):
@@ -496,7 +487,7 @@ def get_sensor_stats(sensor_id, start_date=None, end_date=None):
             return {
                 'status': 'no_data',
                 'sensor_id': sensor_id,
-                'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                'last_update': format_chile_time()
             }
         
         stats = {
@@ -509,7 +500,7 @@ def get_sensor_stats(sensor_id, start_date=None, end_date=None):
             'data_points': len(df),
             'date_range': f"{df.index.min().strftime('%Y-%m-%d')} a {df.index.max().strftime('%Y-%m-%d')}",
             'hours_covered': (df.index.max() - df.index.min()).total_seconds() / 3600 if len(df) > 1 else 0,
-            'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            'last_update': format_chile_time()
         }
         
         return stats
@@ -519,7 +510,7 @@ def get_sensor_stats(sensor_id, start_date=None, end_date=None):
         return {
             'status': 'error',
             'sensor_id': sensor_id,
-            'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            'last_update': format_chile_time()
         }
 
 def render_health_tab():
@@ -641,8 +632,8 @@ def render_specific_tab():
     sensor_options = [{'label': f'Sensor {s}', 'value': s} for s in available_sensors]
     
     # Crear valores predeterminados del selector de fechas
-    default_start = min_date if min_date else datetime.now() - timedelta(days=7)
-    default_end = max_date if max_date else datetime.now()
+    default_start = min_date if min_date else get_chile_time() - timedelta(days=7)
+    default_end = max_date if max_date else get_chile_time()
     
     return html.Div([
         # Controles
@@ -870,7 +861,7 @@ def update_general_dashboard(n):
             font=dict(size=14, color="#e74c3c")
         )
         
-        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        current_time = format_chile_time()
         
         return error_msg, empty_fig, empty_fig, error_msg, f"Error en: {current_time}"
 
@@ -918,7 +909,7 @@ def update_sensor_analysis(n, selected_sensor, start_date, end_date):
             )
             empty_fig.update_layout(title="Seleccione un Sensor", height=500)
             
-            current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            current_time = format_chile_time()
             return sensor_options, selected_sensor, empty_stats, empty_fig, f"Última verificación: {current_time}"
         
         # Obtener datos del sensor usando el procesador modular
@@ -939,7 +930,7 @@ def update_sensor_analysis(n, selected_sensor, start_date, end_date):
             )
             empty_fig.update_layout(title=f"Sensor {selected_sensor} - Sin Datos", height=500)
             
-            current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            current_time = format_chile_time()
             return sensor_options, selected_sensor, empty_stats, empty_fig, f"Última verificación: {current_time}"
         
         # Calcular estadísticas
@@ -1024,7 +1015,7 @@ def update_sensor_analysis(n, selected_sensor, start_date, end_date):
             template='plotly_white'
         )
         
-        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        current_time = format_chile_time()
         last_update = f"Última actualización: {current_time}"
         
         return sensor_options, selected_sensor, stats_cards, fig, last_update
@@ -1047,7 +1038,7 @@ def update_sensor_analysis(n, selected_sensor, start_date, end_date):
             font=dict(size=14, color="#e74c3c")
         )
         
-        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        current_time = format_chile_time()
         
         return [], None, error_msg, empty_fig, f"Error en: {current_time}"
 
@@ -1062,7 +1053,8 @@ def update_health_dashboard(n):
     try:
         health_data = get_sensor_health_status()
         
-        if health_data['status'] == 'no_data':
+        # Handle different health_data response structures
+        if 'status' in health_data and health_data['status'] == 'no_data':
             no_data_msg = html.Div([
                 html.H2("No Hay Datos Disponibles", style={'color': '#e74c3c', 'textAlign': 'center'}),
                 html.P("Ejecute 'python fetch_piloto_files.py' para descargar datos", 
@@ -1077,7 +1069,7 @@ def update_health_dashboard(n):
             
             return no_data_msg, no_data_msg, f"Última verificación: {health_data['last_update']}"
         
-        if health_data['status'] == 'error':
+        if 'status' in health_data and health_data['status'] == 'error':
             error_msg = html.Div([
                 html.H2("Error de Datos", style={'color': '#e74c3c', 'textAlign': 'center'}),
                 html.P("Hubo un error procesando los datos de estado de sensores.", 
@@ -1094,7 +1086,14 @@ def update_health_dashboard(n):
             return error_msg, error_msg, f"Error en: {health_data['last_update']}"
         
         # Caso normal con datos
-        summary = health_data['summary']
+        # Create summary data structure for compatibility
+        summary = {
+            'total_sensors': health_data['total_sensors'],
+            'healthy': health_data['healthy_count'],
+            'warning': health_data['warning_count'],
+            'critical': health_data['critical_count'],
+            'healthy_percentage': round((health_data['healthy_count'] / health_data['total_sensors']) * 100, 1) if health_data['total_sensors'] > 0 else 0
+        }
         
         # Tarjetas de resumen
         summary_cards = html.Div([
@@ -1127,7 +1126,7 @@ def update_health_dashboard(n):
         ])
         
         # Tabla detallada
-        sensor_health = health_data['sensor_health']
+        sensor_health = health_data['sensors']
         table_rows = []
         
         # Encabezado de tabla
@@ -1207,7 +1206,7 @@ def update_health_dashboard(n):
             html.H2("Error", style={'color': '#e74c3c'}),
             html.P(f"Error inesperado: {str(e)}")
         ])
-        return error_msg, error_msg, f"Error en: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        return error_msg, error_msg, f"Error en: {format_chile_time()}"
 
 # CSS personalizado
 app.index_string = '''

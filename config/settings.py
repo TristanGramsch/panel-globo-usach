@@ -5,12 +5,37 @@ Central configuration for WHO guidelines, paths, and application constants
 """
 
 from pathlib import Path
-from datetime import timedelta
+from datetime import timedelta, datetime, timezone
 
 # Project Paths
 PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR = PROJECT_ROOT / 'piloto_data'
 LOGS_DIR = PROJECT_ROOT / 'logs'
+
+# Timezone Configuration
+# Chile Standard Time (CLT) - UTC-3 (Chile stopped observing DST in 2019)
+CHILE_TIMEZONE = timezone(timedelta(hours=-3))
+
+def get_chile_time():
+    """Get current time in Chile timezone (CLT, UTC-3)"""
+    return datetime.now(CHILE_TIMEZONE)
+
+def format_chile_time(dt=None, format_str='%Y-%m-%d %H:%M:%S'):
+    """Format datetime in Chile timezone with timezone label"""
+    if dt is None:
+        dt = get_chile_time()
+    elif dt.tzinfo is None:
+        # Convert naive datetime to Chile timezone
+        dt = dt.replace(tzinfo=CHILE_TIMEZONE)
+    elif dt.tzinfo != CHILE_TIMEZONE:
+        # Convert from other timezone to Chile timezone
+        dt = dt.astimezone(CHILE_TIMEZONE)
+    
+    return f"{dt.strftime(format_str)} CLT"
+
+def get_chile_date():
+    """Get current date in Chile timezone"""
+    return get_chile_time().date()
 
 # Dashboard Configuration
 DEFAULT_PORT = 8050

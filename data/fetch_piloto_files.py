@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 """
-USACH Piloto Sensor Data Fetcher
-
-This script fetches Piloto sensor files from http://ambiente.usach.cl/globo/
-focusing on the current month to avoid overwhelming the server.
-Files are checked for updates throughout the day and re-downloaded if newer.
+USACH Environmental Data Fetcher
+Downloads and manages piloto sensor data files from servidor
 """
 
 import os
@@ -13,27 +10,34 @@ import sys
 import time
 import requests
 import logging
-from datetime import datetime, timedelta
+import json
+import urllib.parse
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from urllib.parse import urljoin
 import hashlib
+from config.settings import PROJECT_ROOT, get_chile_time, format_chile_time, get_chile_date
 
-# Configuration
+# Configuración
 BASE_URL = "http://ambiente.usach.cl/globo/"
-LOCAL_DATA_DIR = "piloto_data"
-LOG_DIR = "logs"
+DATA_DIR = PROJECT_ROOT / 'piloto_data'
+LOG_DIR = PROJECT_ROOT / 'logs'
 REQUEST_TIMEOUT = 30
 RETRY_ATTEMPTS = 3
 RETRY_DELAY = 5  # seconds
 USER_AGENT = "USACH-Piloto-Monitor/1.0"
 
+# Crear directorios si no existen
+DATA_DIR.mkdir(exist_ok=True)
+LOG_DIR.mkdir(exist_ok=True)
+
+# Configurar logging con timestamp en Chile
+chile_time_str = get_chile_time().strftime('%Y%m%d')
+log_file = os.path.join(LOG_DIR, f"piloto_fetcher_{chile_time_str}.log")
+
 # Set up logging
 def setup_logging():
     """Set up logging configuration"""
-    os.makedirs(LOG_DIR, exist_ok=True)
-    log_file = os.path.join(LOG_DIR, f"piloto_fetcher_{datetime.now().strftime('%Y%m%d')}.log")
-    
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
@@ -45,7 +49,7 @@ def setup_logging():
     return logging.getLogger(__name__)
 
 class PilotoFileFetcher:
-    def __init__(self, base_url: str = BASE_URL, local_dir: str = LOCAL_DATA_DIR):
+    def __init__(self, base_url: str = BASE_URL, local_dir: str = DATA_DIR):
         self.base_url = base_url
         self.local_dir = Path(local_dir)
         self.local_dir.mkdir(exist_ok=True)
@@ -120,7 +124,7 @@ class PilotoFileFetcher:
     
     def filter_current_month_files(self, files: List[Dict[str, str]]) -> List[Dict[str, str]]:
         """Filter files to only include current month"""
-        current_date = datetime.now()
+        current_date = get_chile_time()
         current_month_str = current_date.strftime("%m%y")
         
         current_month_files = []
@@ -146,7 +150,7 @@ class PilotoFileFetcher:
             return {
                 'path': local_path,
                 'size': stat.st_size,
-                'mtime': datetime.fromtimestamp(stat.st_mtime),
+                'mtime': get_chile_time().fromtimestamp(stat.st_mtime),
                 'exists': True
             }
         return {'exists': False}
@@ -164,7 +168,7 @@ class PilotoFileFetcher:
         if file_info['last_modified'] != 'unknown':
             try:
                 # Parse server timestamp (assuming format: YYYY-MM-DD HH:MM)
-                server_time = datetime.strptime(file_info['last_modified'], '%Y-%m-%d %H:%M')
+                server_time = get_chile_time().strptime(file_info['last_modified'], '%Y-%m-%d %H:%M')
                 local_time = local_info['mtime']
                 
                 if server_time > local_time:
@@ -177,7 +181,7 @@ class PilotoFileFetcher:
                 self.logger.warning(f"Could not parse server timestamp for {filename}")
         
         # For files updated today, always check (since they update throughout the day)
-        today = datetime.now().date()
+        today = get_chile_time().date()
         file_date = local_info['mtime'].date()
         if file_date == today:
             self.logger.info(f"File {filename} was modified today, checking for updates")
@@ -242,7 +246,7 @@ class PilotoFileFetcher:
         """Run a complete fetch cycle"""
         start_time = time.time()
         stats = {
-            'start_time': datetime.now(),
+            'start_time': get_chile_time(),
             'server_accessible': False,
             'files_found': 0,
             'files_downloaded': 0,
@@ -282,7 +286,7 @@ class PilotoFileFetcher:
                 if self.download_file(filename):
                     local_info = self.get_local_file_info(filename)
                     if local_info['exists']:
-                        if local_info['mtime'].date() == datetime.now().date():
+                        if local_info['mtime'].date() == get_chile_time().date():
                             stats['files_updated'] += 1
                         else:
                             stats['files_downloaded'] += 1
