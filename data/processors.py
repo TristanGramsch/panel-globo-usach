@@ -10,7 +10,7 @@ import logging
 import pandas as pd
 from datetime import datetime, timedelta
 from pathlib import Path
-from config.settings import DATA_DIR, MIN_FILE_SIZE_BYTES, get_chile_time, format_chile_time
+from config.settings import DATA_DIR, MIN_FILE_SIZE_BYTES, get_chile_time, format_chile_time, CHILE_TIMEZONE
 from utils.helpers import (
     extract_sensor_id_from_filename, 
     extract_date_from_filename,
@@ -25,6 +25,70 @@ from config.logging_config import (
 
 # Initialize the data processing logger
 logger = get_data_processing_logger()
+
+def safe_float(value):
+    """
+    Safely convert a value to float, returning 0.0 if conversion fails
+    
+    Args:
+        value (str or numeric): Value to convert
+        
+    Returns:
+        float: Converted value or 0.0 if conversion fails
+    """
+    try:
+        if isinstance(value, str):
+            value = value.strip()
+            if not value or value.lower() in ['nan', 'null', 'none', '']:
+                return 0.0
+        return float(value)
+    except (ValueError, TypeError):
+        return 0.0
+
+def parse_timestamp(date_str, time_str):
+    """
+    Parse date and time strings from sensor data files
+    
+    Args:
+        date_str (str): Date string in format DD-MM-YY
+        time_str (str): Time string in format HH:MM:SS
+        
+    Returns:
+        datetime or None: Parsed datetime object or None if parsing fails
+    """
+    try:
+        # Handle the date format DD-MM-YY
+        date_parts = date_str.strip().split('-')
+        if len(date_parts) != 3:
+            return None
+            
+        day = int(date_parts[0])
+        month = int(date_parts[1])
+        year_2digit = int(date_parts[2])
+        
+        # Convert 2-digit year to 4-digit year
+        # Assuming years 00-30 are 2000-2030, and 31-99 are 1931-1999
+        if year_2digit <= 30:
+            year = 2000 + year_2digit
+        else:
+            year = 1900 + year_2digit
+            
+        # Handle the time format HH:MM:SS
+        time_parts = time_str.strip().split(':')
+        if len(time_parts) != 3:
+            return None
+            
+        hour = int(time_parts[0])
+        minute = int(time_parts[1])
+        second = int(time_parts[2])
+        
+        # Create datetime object
+        dt = datetime(year, month, day, hour, minute, second)
+        return dt
+        
+    except (ValueError, IndexError) as e:
+        logger.debug(f"Error parsing timestamp '{date_str}' '{time_str}': {e}")
+        return None
 
 def get_available_sensors():
     """
@@ -145,36 +209,49 @@ def parse_piloto_file(file_path):
                 line_count += 1
                 line = line.strip()
                 
-                if not line or line.startswith('#'):
+                # Skip empty lines and header lines
+                if not line or line.startswith('#') or line.startswith('Ds,') or line.startswith('DS,'):
+                    continue
+                
+                # Skip lines that start with day names (these are data lines we want)
+                # but first check if they have the right format
+                if not line.startswith(('Lu,', 'Ma,', 'Mi,', 'Ju,', 'Vi,', 'Sa,', 'Do,')):
                     continue
                 
                 try:
-                    parts = line.split(',')
-                    if len(parts) >= 8:  # Minimum required columns
-                        # Parse timestamp (assuming format: DD/MM/YY HH:MM:SS)
-                        timestamp_str = parts[0].strip()
-                        timestamp = parse_timestamp(timestamp_str)
-                        
-                        if timestamp:
-                            row = {
-                                'Timestamp': timestamp,
-                                'MP1': safe_float(parts[1]),
-                                'MP25': safe_float(parts[2]),
-                                'MP10': safe_float(parts[3]),
-                                'Temperature': safe_float(parts[4]),
-                                'Humidity': safe_float(parts[5]),
-                                'Pressure': safe_float(parts[6]),
-                                'Sensor_ID': parts[7].strip() if len(parts) > 7 else 'Unknown'
-                            }
-                            data.append(row)
-                        else:
-                            error_count += 1
-                            if error_count <= 5:  # Log only first 5 errors
-                                logger.warning(f"Invalid timestamp in {file_path.name}, line {line_num}: {timestamp_str}")
+                    # Split the line by comma and clean up whitespace
+                    parts = [part.strip() for part in line.split(',')]
+                    
+                    if len(parts) < 12:  # Minimum required columns for basic data
+                        continue
+                    
+                    # Extract the main data fields according to the file format
+                    # Format: Day, Date, Time, Temp, Humidity, Pressure, Altitude, MP1.0, MP2.5, MP10, etc.
+                    day_name = parts[0]  # Lu, Ma, Mi, Ju, Vi, Sa, Do
+                    date_str = parts[1]  # DD-MM-YY
+                    time_str = parts[2]  # HH:MM:SS
+                    
+                    # Parse timestamp
+                    timestamp = parse_timestamp(date_str, time_str)
+                    
+                    if timestamp:
+                        # Extract the air quality and environmental data
+                        # Based on the header: MP1.0 is at index 7, MP2.5 at 8, MP10 at 9
+                        row = {
+                            'Timestamp': timestamp,
+                            'MP1': safe_float(parts[7]) if len(parts) > 7 else 0.0,
+                            'MP25': safe_float(parts[8]) if len(parts) > 8 else 0.0,
+                            'MP10': safe_float(parts[9]) if len(parts) > 9 else 0.0,
+                            'Temperature': safe_float(parts[3]) if len(parts) > 3 else 0.0,
+                            'Humidity': safe_float(parts[4]) if len(parts) > 4 else 0.0,
+                            'Pressure': safe_float(parts[5]) if len(parts) > 5 else 0.0,
+                            'Sensor_ID': extract_sensor_id_from_filename(file_path.name)
+                        }
+                        data.append(row)
                     else:
                         error_count += 1
-                        if error_count <= 5:
-                            logger.warning(f"Insufficient columns in {file_path.name}, line {line_num}: {len(parts)} columns")
+                        if error_count <= 5:  # Log only first 5 errors
+                            logger.warning(f"Invalid timestamp in {file_path.name}, line {line_num}: {date_str} {time_str}")
                             
                 except Exception as e:
                     error_count += 1
@@ -182,6 +259,12 @@ def parse_piloto_file(file_path):
                         logger.warning(f"Error parsing line {line_num} in {file_path.name}: {e}")
         
         df = pd.DataFrame(data)
+        
+        # Set timestamp as index for time series operations
+        if not df.empty and 'Timestamp' in df.columns:
+            df.set_index('Timestamp', inplace=True)
+            df.sort_index(inplace=True)
+        
         duration = (get_chile_time() - start_time).total_seconds()
         
         log_data_operation(
@@ -254,7 +337,10 @@ def get_sensor_data(sensor_id, start_date=None, end_date=None):
             return pd.DataFrame()
         
         # Combine all dataframes
-        combined_df = pd.concat(all_data, ignore_index=True)
+        combined_df = pd.concat(all_data, ignore_index=False)  # Keep index (which is timestamp)
+        
+        # Reset index to make Timestamp a column for filtering
+        combined_df.reset_index(inplace=True)
         
         # Apply date filtering if specified
         if start_date or end_date:
@@ -266,8 +352,9 @@ def get_sensor_data(sensor_id, start_date=None, end_date=None):
             filtered_count = len(combined_df)
             logger.info(f"Date filtering: {original_count} -> {filtered_count} rows")
         
-        # Sort by timestamp
-        combined_df = combined_df.sort_values('Timestamp').reset_index(drop=True)
+        # Sort by timestamp and set it back as index
+        combined_df = combined_df.sort_values('Timestamp')
+        combined_df.set_index('Timestamp', inplace=True)
         
         duration = (get_chile_time() - start_time).total_seconds()
         
@@ -320,7 +407,7 @@ def get_current_data():
         recent_files = []
         for file_path in files:
             # Check file modification time
-            mtime = datetime.fromtimestamp(file_path.stat().st_mtime, tz=CHILE_TZ).date()
+            mtime = datetime.fromtimestamp(file_path.stat().st_mtime, tz=CHILE_TIMEZONE).date()
             if mtime >= yesterday:
                 recent_files.append(file_path)
         
@@ -349,7 +436,10 @@ def get_current_data():
             return pd.DataFrame()
         
         # Combine and get most recent data per sensor
-        combined_df = pd.concat(all_data, ignore_index=True)
+        combined_df = pd.concat(all_data, ignore_index=False)  # Keep index (which is timestamp)
+        
+        # Reset index to make Timestamp a column again for grouping
+        combined_df.reset_index(inplace=True)
         
         # Get the most recent reading for each sensor
         current_data = combined_df.loc[combined_df.groupby('Sensor_ID')['Timestamp'].idxmax()]

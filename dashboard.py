@@ -5,7 +5,7 @@ Panel web interactivo para monitoreo de calidad del aire en tiempo real
 """
 
 import dash
-from dash import dcc, html, Input, Output, callback
+from dash import dcc, html, Input, Output, State
 import plotly.graph_objs as go
 import plotly.express as px
 import pandas as pd
@@ -22,19 +22,28 @@ from config.logging_config import (
     setup_all_loggers,
     log_performance_metric
 )
+from apscheduler.schedulers.background import BackgroundScheduler
 
 # Importar desde nuestra estructura modular
 from data.processors import get_current_data, parse_piloto_file, get_sensor_data as get_sensor_data_processor
 from data.fetch_piloto_files import fetch_and_update_data
 from config.settings import (
     WHO_GUIDELINES, get_chile_time, format_chile_time, get_chile_date,
-    get_data_status, get_data_freshness, DATA_FETCH_INTERVAL_MINUTES
+    get_data_status, get_data_freshness, DATA_FETCH_INTERVAL_MINUTES,
+    CHILE_TIMEZONE, DATA_DIR, 
+    get_developer_metrics, get_log_statistics, get_system_performance, 
+    get_background_process_status, calculate_system_health_score, 
+    get_recent_log_entries, DASHBOARD_PORT
 )
 from utils.helpers import get_air_quality_category
 
 # Global variable to control background thread
 background_fetcher_running = False
 background_thread = None
+
+# Set port and timezone
+PORT = DASHBOARD_PORT
+TIMEZONE = CHILE_TIMEZONE
 
 def start_background_fetcher():
     """Start the background data fetching service"""
@@ -77,7 +86,7 @@ def start_background_fetcher():
     initial_fetch()
     
     # Schedule regular fetches
-    scheduler = BackgroundScheduler(timezone=CHILE_TZ)
+    scheduler = BackgroundScheduler(timezone=TIMEZONE)
     scheduler.add_job(
         func=scheduled_fetch,
         trigger="interval",
@@ -280,8 +289,6 @@ def get_sensor_health_status():
                     health['status'] = 'warning'
                 else:
                     health['status'] = 'critical'
-            else:
-                health['status'] = 'critical'
         
         duration = (get_chile_time() - start_time).total_seconds()
         
@@ -315,7 +322,7 @@ def create_sensor_health_plot(health_data):
         if health_data['status'] != 'success':
             return create_empty_plot("Error obteniendo datos de salud de sensores")
         
-        sensor_health = health_data['sensor_health']
+        sensor_health = health_data['sensors']
         
         # Preparar datos para el gráfico
         sensors = []
@@ -696,7 +703,8 @@ app.layout = html.Div([
         dcc.Tabs(id="tabs", value="tab-1", children=[
             dcc.Tab(label="Resumen General", value="tab-1", style={'padding': '10px'}),
             dcc.Tab(label="Análisis de Sensor Específico", value="tab-2", style={'padding': '10px'}),
-            dcc.Tab(label="Estado de Sensores", value="tab-3", style={'padding': '10px'})
+            dcc.Tab(label="Estado de Sensores", value="tab-3", style={'padding': '10px'}),
+            dcc.Tab(label="🔧 Desarrollador", value="tab-4", style={'padding': '10px', 'background': '#2c3e50', 'color': 'white'})
         ], style={'marginBottom': '20px'}),
         
         html.Div(id='tabs-content')
@@ -783,6 +791,215 @@ def render_specific_tab():
         ], style={'background': '#ecf0f1', 'padding': '15px', 'marginTop': '30px'})
     ])
 
+def render_developer_tab():
+    """Renderizar la pestaña de desarrollador con métricas del sistema"""
+    return html.Div([
+        # Encabezado de desarrollador
+        html.Div([
+            html.H2("🔧 Panel de Desarrollador", style={'color': '#2c3e50', 'margin': '0'}),
+            html.P("Métricas del sistema, logs y rendimiento", style={'color': '#7f8c8d', 'margin': '5px 0'})
+        ], style={'background': '#ecf0f1', 'padding': '20px', 'borderRadius': '10px', 'marginBottom': '20px'}),
+        
+        # Tarjetas de métricas principales
+        html.Div(id='dev-metrics-cards', style={'margin': '20px 0'}),
+        
+        # Gráficos de rendimiento
+        html.Div([
+            html.Div([
+                html.H3("📊 Rendimiento del Sistema", style={'color': '#2c3e50', 'marginBottom': '15px'}),
+                dcc.Graph(id='performance-chart')
+            ], style={'width': '48%', 'display': 'inline-block', 'verticalAlign': 'top', 'marginRight': '2%'}),
+            
+            html.Div([
+                html.H3("📈 Estado de Logs", style={'color': '#2c3e50', 'marginBottom': '15px'}),
+                dcc.Graph(id='logs-chart')
+            ], style={'width': '48%', 'display': 'inline-block', 'verticalAlign': 'top', 'marginLeft': '2%'})
+        ], style={'margin': '20px 0'}),
+        
+        # Tabla de logs recientes
+        html.Div([
+            html.H3("📋 Logs Recientes", style={'color': '#2c3e50', 'marginBottom': '15px'}),
+            html.Div([
+                html.Label("Nivel de Log:", style={'marginRight': '10px', 'fontWeight': 'bold'}),
+                dcc.Dropdown(
+                    id='log-level-filter',
+                    options=[
+                        {'label': 'Todos', 'value': 'ALL'},
+                        {'label': 'ERROR', 'value': 'ERROR'},
+                        {'label': 'WARNING', 'value': 'WARNING'},
+                        {'label': 'INFO', 'value': 'INFO'}
+                    ],
+                    value='ERROR',
+                    style={'width': '150px', 'display': 'inline-block'}
+                )
+            ], style={'marginBottom': '15px'}),
+            html.Div(id='recent-logs-table')
+        ], style={'background': '#f8f9fa', 'padding': '20px', 'borderRadius': '10px', 'margin': '20px 0'}),
+        
+        # Información de sistema
+        html.Div(id='system-info', style={'margin': '20px 0'}),
+        
+        # Pie de página
+        html.Div([
+            html.P(id='dev-last-update', style={'textAlign': 'center', 'color': '#7f8c8d', 'margin': '10px 0'}),
+            html.P("Panel actualizado cada 30 segundos • Logs y métricas en tiempo real", 
+                   style={'textAlign': 'center', 'color': '#7f8c8d', 'fontSize': '0.9em', 'margin': '5px 0'})
+        ], style={'background': '#2c3e50', 'color': 'white', 'padding': '15px', 'marginTop': '30px', 'borderRadius': '10px'})
+    ])
+
+def get_developer_dashboard_data():
+    """Obtener datos para el panel de desarrollador"""
+    try:
+        logger.info("Getting developer metrics")
+        return get_developer_metrics()
+    except Exception as e:
+        logger.error(f"Error getting developer metrics: {e}", exc_info=True)
+        return {
+            'timestamp': format_chile_time(),
+            'error': str(e),
+            'system_health': 0
+        }
+
+def create_performance_chart(metrics):
+    """Crear gráfico de rendimiento del sistema"""
+    try:
+        if 'error' in metrics:
+            return create_empty_plot("Error obteniendo métricas de rendimiento")
+        
+        performance = metrics.get('performance', {})
+        
+        if performance.get('status') != 'active':
+            return create_empty_plot(performance.get('message', 'Métricas no disponibles'))
+        
+        # Crear gráfico de barras para uso de recursos
+        categories = ['CPU', 'Memoria', 'Disco']
+        values = [
+            performance.get('cpu', {}).get('percent', 0),
+            performance.get('memory', {}).get('percent_used', 0),
+            performance.get('disk', {}).get('percent_used', 0)
+        ]
+        
+        # Colores basados en el nivel de uso
+        colors = []
+        for val in values:
+            if val > 90:
+                colors.append('#e74c3c')  # Rojo
+            elif val > 80:
+                colors.append('#f39c12')  # Naranja
+            elif val > 60:
+                colors.append('#f1c40f')  # Amarillo
+            else:
+                colors.append('#27ae60')  # Verde
+        
+        fig = go.Figure(data=[
+            go.Bar(
+                x=categories,
+                y=values,
+                marker_color=colors,
+                text=[f'{v:.1f}%' for v in values],
+                textposition='inside'
+            )
+        ])
+        
+        fig.update_layout(
+            title="Uso de Recursos del Sistema",
+            yaxis_title="Porcentaje de Uso (%)",
+            height=300,
+            showlegend=False
+        )
+        
+        # Agregar líneas de referencia
+        fig.add_hline(y=80, line_dash="dash", line_color="orange", annotation_text="Advertencia (80%)")
+        fig.add_hline(y=90, line_dash="dash", line_color="red", annotation_text="Crítico (90%)")
+        
+        return fig
+        
+    except Exception as e:
+        logger.error(f"Error creating performance chart: {e}")
+        return create_empty_plot(f"Error: {str(e)}")
+
+def create_logs_chart(metrics):
+    """Crear gráfico de estado de logs"""
+    try:
+        logs = metrics.get('logs', {})
+        
+        if not logs or logs.get('status') != 'success':
+            return create_empty_plot("Datos de logs no disponibles")
+        
+        # Datos para el gráfico de logs por componente
+        components = []
+        log_counts = []
+        error_counts = []
+        
+        for component, info in logs.get('component_info', {}).items():
+            if component != 'total_size_mb':
+                components.append(component.replace('_', ' ').title())
+                log_counts.append(info.get('file_count', 0))
+                error_counts.append(len(info.get('recent_errors', [])))
+        
+        # Si no hay datos, mostrar mensaje
+        if not components:
+            return create_empty_plot("No hay datos de logs disponibles")
+        
+        fig = go.Figure()
+        
+        # Barras para archivos de log
+        fig.add_trace(go.Bar(
+            name='Archivos de Log',
+            x=components,
+            y=log_counts,
+            marker_color='#3498db',
+            text=log_counts,
+            textposition='auto',
+        ))
+        
+        # Barras para errores recientes
+        fig.add_trace(go.Bar(
+            name='Errores Recientes',
+            x=components,
+            y=error_counts,
+            marker_color='#e74c3c',
+            text=error_counts,
+            textposition='auto',
+        ))
+        
+        fig.update_layout(
+            title="📝 Estado de Logs por Componente",
+            xaxis_title="Componente",
+            yaxis_title="Cantidad",
+            font=dict(family="Arial, sans-serif", size=12),
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            barmode='group',
+            height=400,
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            )
+        )
+        
+        fig.update_xaxes(
+            showgrid=True,
+            gridwidth=1,
+            gridcolor='rgba(128,128,128,0.2)'
+        )
+        
+        fig.update_yaxes(
+            showgrid=True,
+            gridwidth=1,
+            gridcolor='rgba(128,128,128,0.2)'
+        )
+        
+        return fig
+        
+    except Exception as e:
+        logger.error(f"Error creating logs chart: {e}")
+        return create_empty_plot(f"Error: {str(e)}")
+
 # Callback para contenido de pestañas
 @app.callback(Output('tabs-content', 'children'),
               Input('tabs', 'value'))
@@ -793,6 +1010,8 @@ def render_content(tab):
         return render_specific_tab()
     elif tab == 'tab-3':
         return render_health_tab()
+    elif tab == 'tab-4':
+        return render_developer_tab()
 
 # Callbacks para actualizaciones de pestaña general
 @app.callback(
@@ -838,7 +1057,10 @@ def update_general_dashboard(n):
             
             sensor_details = html.Div([
                 html.H2("Detalle", style={'color': '#2c3e50', 'marginBottom': '20px'}),
-                html.Div(sensor_cards, style={
+                html.Div([
+                    html.P("No hay datos de sensores disponibles", 
+                           style={'textAlign': 'center', 'color': '#7f8c8d', 'fontStyle': 'italic'})
+                ], style={
                     'display': 'grid',
                     'gridTemplateColumns': 'repeat(auto-fit, minmax(250px, 1fr))',
                     'gap': '15px'
@@ -1337,6 +1559,255 @@ def update_health_dashboard(n):
             html.P(f"Error inesperado: {str(e)}")
         ])
         return error_msg, error_msg, f"Error en: {format_chile_time()}"
+
+# Callback para el panel de desarrollador
+@app.callback(
+    [Output('dev-metrics-cards', 'children'),
+     Output('performance-chart', 'figure'),
+     Output('logs-chart', 'figure'),
+     Output('system-info', 'children'),
+     Output('dev-last-update', 'children')],
+    [Input('interval-component', 'n_intervals')]
+)
+def update_developer_dashboard(n):
+    """Actualizar el panel de desarrollador"""
+    try:
+        # Obtener métricas del sistema
+        metrics = get_developer_dashboard_data()
+        
+        if 'error' in metrics:
+            error_msg = html.Div([
+                html.H3("❌ Error", style={'color': '#e74c3c'}),
+                html.P(f"Error obteniendo métricas: {metrics['error']}")
+            ])
+            empty_fig = create_empty_plot("Error en métricas")
+            return error_msg, empty_fig, empty_fig, error_msg, f"Error: {metrics['timestamp']}"
+        
+        # Crear tarjetas de métricas principales
+        metrics_cards = create_developer_metrics_cards(metrics)
+        
+        # Crear gráficos
+        perf_chart = create_performance_chart(metrics)
+        logs_chart = create_logs_chart(metrics)
+        
+        # Crear información del sistema
+        system_info = create_system_info_section(metrics)
+        
+        # Timestamp de actualización
+        last_update = f"Última actualización: {metrics['timestamp']}"
+        
+        return metrics_cards, perf_chart, logs_chart, system_info, last_update
+        
+    except Exception as e:
+        logger.error(f"Error updating developer dashboard: {e}", exc_info=True)
+        error_msg = html.Div([
+            html.H3("❌ Error del Sistema", style={'color': '#e74c3c'}),
+            html.P(f"Error inesperado: {str(e)}")
+        ])
+        empty_fig = create_empty_plot("Error del sistema")
+        return error_msg, empty_fig, empty_fig, error_msg, f"Error: {format_chile_time()}"
+
+# Callback para la tabla de logs recientes
+@app.callback(
+    Output('recent-logs-table', 'children'),
+    [Input('interval-component', 'n_intervals'),
+     Input('log-level-filter', 'value')]
+)
+def update_recent_logs_table(n, log_level):
+    """Actualizar la tabla de logs recientes"""
+    try:
+        # Obtener logs recientes
+        recent_logs = get_recent_log_entries(level=log_level, limit=15)
+        
+        if not recent_logs:
+            return html.P("No hay logs disponibles", style={'textAlign': 'center', 'color': '#7f8c8d'})
+        
+        # Crear tabla
+        table_header = html.Tr([
+            html.Th("Timestamp", style={'padding': '12px', 'background': '#f8f9fa', 'border': '1px solid #dee2e6'}),
+            html.Th("Componente", style={'padding': '12px', 'background': '#f8f9fa', 'border': '1px solid #dee2e6'}),
+            html.Th("Nivel", style={'padding': '12px', 'background': '#f8f9fa', 'border': '1px solid #dee2e6'}),
+            html.Th("Mensaje", style={'padding': '12px', 'background': '#f8f9fa', 'border': '1px solid #dee2e6'})
+        ])
+        
+        table_rows = []
+        for log_entry in recent_logs:
+            # Color del nivel de log
+            level_color = {
+                'ERROR': '#e74c3c',
+                'WARNING': '#f39c12', 
+                'INFO': '#3498db',
+                'DEBUG': '#95a5a6'
+            }.get(log_entry['level'], '#2c3e50')
+            
+            row = html.Tr([
+                html.Td(log_entry['timestamp'], style={'padding': '8px', 'border': '1px solid #dee2e6', 'fontSize': '0.85em'}),
+                html.Td(log_entry['component'], style={'padding': '8px', 'border': '1px solid #dee2e6', 'fontWeight': 'bold'}),
+                html.Td(log_entry['level'], style={
+                    'padding': '8px', 
+                    'border': '1px solid #dee2e6',
+                    'color': level_color,
+                    'fontWeight': 'bold'
+                }),
+                html.Td(
+                    log_entry['message'][:100] + ('...' if len(log_entry['message']) > 100 else ''),
+                    style={'padding': '8px', 'border': '1px solid #dee2e6', 'fontSize': '0.9em'}
+                )
+            ])
+            table_rows.append(row)
+        
+        table = html.Table([
+            html.Thead([table_header]),
+            html.Tbody(table_rows)
+        ], style={
+            'width': '100%',
+            'borderCollapse': 'collapse',
+            'border': '1px solid #dee2e6'
+        })
+        
+        return table
+        
+    except Exception as e:
+        logger.error(f"Error updating logs table: {e}")
+        return html.P(f"Error cargando logs: {str(e)}", style={'color': '#e74c3c'})
+
+def create_developer_metrics_cards(metrics):
+    """Crear tarjetas de métricas principales para desarrollador"""
+    try:
+        # Obtener puntuación de salud del sistema
+        health_score = metrics.get('system_health', 0)
+        health_color = '#27ae60' if health_score >= 80 else '#f39c12' if health_score >= 60 else '#e74c3c'
+        
+        # Status del pipeline de datos
+        data_pipeline = metrics.get('data_pipeline', {})
+        pipeline_status = data_pipeline.get('status', {}).get('status', 'unknown')
+        pipeline_color = '#27ae60' if pipeline_status == 'success' else '#e74c3c' if pipeline_status == 'error' else '#f39c12'
+        
+        # Status de logs
+        logs = metrics.get('logs', {})
+        log_errors = len(logs.get('recent_errors', []))
+        log_color = '#27ae60' if log_errors == 0 else '#f39c12' if log_errors < 5 else '#e74c3c'
+        
+        # Status de rendimiento
+        performance = metrics.get('performance', {})
+        perf_status = performance.get('status', 'unknown')
+        perf_color = '#27ae60' if perf_status == 'active' else '#e74c3c'
+        
+        # Background process status
+        bg_process = metrics.get('background_process', {})
+        fetcher = bg_process.get('fetcher', {})
+        fetch_status = fetcher.get('status', 'unknown')
+        fetch_color = '#27ae60' if fetch_status == 'running' else '#f39c12'
+        
+        cards = html.Div([
+            # Salud general del sistema
+            html.Div([
+                html.H3("🎯 Salud del Sistema", style={'color': '#2c3e50', 'margin': '0 0 10px 0'}),
+                html.H1(f"{health_score}%", style={'color': health_color, 'margin': '0', 'fontSize': '3em'}),
+                html.P("Puntuación General", style={'color': '#7f8c8d', 'margin': '5px 0'})
+            ], className='stat-card', style={'border-left': f'4px solid {health_color}'}),
+            
+            # Pipeline de datos
+            html.Div([
+                html.H3("📊 Pipeline de Datos", style={'color': '#2c3e50', 'margin': '0 0 10px 0'}),
+                html.H2(pipeline_status.title(), style={'color': pipeline_color, 'margin': '0'}),
+                html.P(f"Archivos procesados: {data_pipeline.get('status', {}).get('files_fetched', 0)}", 
+                       style={'color': '#7f8c8d', 'margin': '5px 0'})
+            ], className='stat-card', style={'border-left': f'4px solid {pipeline_color}'}),
+            
+            # Logs
+            html.Div([
+                html.H3("📝 Estado de Logs", style={'color': '#2c3e50', 'margin': '0 0 10px 0'}),
+                html.H2(f"{log_errors} Errores", style={'color': log_color, 'margin': '0'}),
+                html.P(f"Tamaño total: {logs.get('total_size_mb', 0)} MB", 
+                       style={'color': '#7f8c8d', 'margin': '5px 0'})
+            ], className='stat-card', style={'border-left': f'4px solid {log_color}'}),
+            
+            # Rendimiento
+            html.Div([
+                html.H3("⚡ Rendimiento", style={'color': '#2c3e50', 'margin': '0 0 10px 0'}),
+                html.H2(perf_status.title(), style={'color': perf_color, 'margin': '0'}),
+                html.P(f"CPU: {performance.get('cpu', {}).get('percent', 0):.1f}% | " +
+                       f"RAM: {performance.get('memory', {}).get('percent_used', 0):.1f}%", 
+                       style={'color': '#7f8c8d', 'margin': '5px 0'})
+            ], className='stat-card', style={'border-left': f'4px solid {perf_color}'}),
+            
+            # Background Process
+            html.Div([
+                html.H3("🔄 Auto-Fetcher", style={'color': '#2c3e50', 'margin': '0 0 10px 0'}),
+                html.H2(fetch_status.title(), style={'color': fetch_color, 'margin': '0'}),
+                html.P(f"Última ejecución: {fetcher.get('last_fetch', 'Nunca')[:10] if fetcher.get('last_fetch') != 'Nunca' else 'Nunca'}", 
+                       style={'color': '#7f8c8d', 'margin': '5px 0'})
+            ], className='stat-card', style={'border-left': f'4px solid {fetch_color}'})
+            
+        ], style={
+            'display': 'grid',
+            'gridTemplateColumns': 'repeat(auto-fit, minmax(250px, 1fr))',
+            'gap': '20px'
+        })
+        
+        return cards
+        
+    except Exception as e:
+        logger.error(f"Error creating developer metrics cards: {e}")
+        return html.Div([
+            html.H3("❌ Error", style={'color': '#e74c3c'}),
+            html.P(f"Error creando tarjetas: {str(e)}")
+        ])
+
+def create_system_info_section(metrics):
+    """Crear sección de información del sistema"""
+    try:
+        performance = metrics.get('performance', {})
+        bg_process = metrics.get('background_process', {})
+        
+        if performance.get('status') != 'active':
+            return html.Div([
+                html.H3("💻 Información del Sistema", style={'color': '#2c3e50'}),
+                html.P(performance.get('message', 'Información no disponible'), style={'color': '#7f8c8d'})
+            ])
+        
+        memory = performance.get('memory', {})
+        disk = performance.get('disk', {})
+        cpu = performance.get('cpu', {})
+        fetcher = bg_process.get('fetcher', {})
+        
+        info_section = html.Div([
+            html.H3("💻 Información del Sistema", style={'color': '#2c3e50', 'marginBottom': '20px'}),
+            
+            html.Div([
+                # Columna izquierda - Recursos
+                html.Div([
+                    html.H4("🖥️ Recursos", style={'color': '#34495e', 'marginBottom': '15px'}),
+                    html.P(f"• Memoria Total: {memory.get('total_gb', 0)} GB", style={'margin': '8px 0'}),
+                    html.P(f"• Memoria Disponible: {memory.get('available_gb', 0)} GB", style={'margin': '8px 0'}),
+                    html.P(f"• Uso de Memoria: {memory.get('percent_used', 0):.1f}%", style={'margin': '8px 0'}),
+                    html.P(f"• Proceso Dashboard: {memory.get('process_mb', 0)} MB", style={'margin': '8px 0'}),
+                    html.P(f"• Espacio en Disco: {disk.get('free_gb', 0):.1f} GB libre de {disk.get('total_gb', 0)} GB", style={'margin': '8px 0'}),
+                    html.P(f"• Uso de CPU: {cpu.get('percent', 0):.1f}%", style={'margin': '8px 0'})
+                ], style={'width': '48%', 'display': 'inline-block', 'verticalAlign': 'top'}),
+                
+                # Columna derecha - Procesos
+                html.Div([
+                    html.H4("🔄 Procesos de Fondo", style={'color': '#34495e', 'marginBottom': '15px'}),
+                    html.P(f"• Estado del Fetcher: {fetcher.get('status', 'unknown').title()}", style={'margin': '8px 0'}),
+                    html.P(f"• Archivos Obtenidos: {fetcher.get('files_fetched', 0)}", style={'margin': '8px 0'}),
+                    html.P(f"• Archivos Actualizados: {fetcher.get('files_updated', 0)}", style={'margin': '8px 0'}),
+                    html.P(f"• Duración del Último Fetch: {fetcher.get('fetch_duration', 0):.1f}s", style={'margin': '8px 0'}),
+                    html.P(f"• Próxima Ejecución: {fetcher.get('next_estimated', 'Desconocido')[:16] if fetcher.get('next_estimated') != 'Unknown' else 'Desconocido'}", style={'margin': '8px 0'}),
+                    html.P(f"• Errores Recientes: {fetcher.get('recent_errors', 0)}", style={'margin': '8px 0'})
+                ], style={'width': '48%', 'display': 'inline-block', 'verticalAlign': 'top', 'marginLeft': '4%'})
+            ])
+        ], style={'background': '#f8f9fa', 'padding': '20px', 'borderRadius': '10px'})
+        
+        return info_section
+        
+    except Exception as e:
+        logger.error(f"Error creating system info section: {e}")
+        return html.Div([
+            html.H3("❌ Error", style={'color': '#e74c3c'}),
+            html.P(f"Error creando información del sistema: {str(e)}")
+        ])
 
 # CSS personalizado
 app.index_string = '''

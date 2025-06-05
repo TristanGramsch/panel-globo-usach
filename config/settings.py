@@ -207,4 +207,299 @@ CSS_STYLES = {
         'gap': '20px',
         'margin': '20px 0'
     }
-} 
+}
+
+def get_developer_metrics():
+    """
+    Get comprehensive developer metrics for system monitoring
+    """
+    current_time = get_chile_time()
+    
+    # Get basic data status
+    data_status = get_data_status()
+    data_freshness = get_data_freshness()
+    
+    # Log file analysis
+    log_stats = get_log_statistics()
+    
+    # System performance metrics
+    performance_stats = get_system_performance()
+    
+    # Background process status
+    process_status = get_background_process_status()
+    
+    return {
+        'timestamp': format_chile_time(current_time),
+        'data_pipeline': {
+            'status': data_status,
+            'freshness': data_freshness
+        },
+        'logs': log_stats,
+        'performance': performance_stats,
+        'background_process': process_status,
+        'system_health': calculate_system_health_score(data_status, log_stats, performance_stats)
+    }
+
+def get_log_statistics():
+    """
+    Get statistics about log files and recent activity
+    """
+    import os
+    from pathlib import Path
+    
+    logs_dir = Path('logs')
+    if not logs_dir.exists():
+        return {'status': 'no_logs', 'message': 'Logs directory not found'}
+    
+    try:
+        # Get log file sizes and counts
+        components = ['dashboard', 'data_fetching', 'data_processing', 'system']
+        log_stats = {}
+        
+        today = get_chile_time().strftime('%Y%m%d')
+        total_size = 0
+        total_files = 0
+        recent_errors = []
+        
+        for component in components:
+            component_dir = logs_dir / component
+            if component_dir.exists():
+                files = list(component_dir.glob('*.log'))
+                size = sum(f.stat().st_size for f in files) / (1024 * 1024)  # MB
+                
+                # Check for today's error log
+                error_log = component_dir / f"{component}_errors_{today}.log"
+                error_count = 0
+                if error_log.exists() and error_log.stat().st_size > 0:
+                    try:
+                        with open(error_log, 'r') as f:
+                            error_count = len(f.readlines())
+                            if error_count > 0:
+                                recent_errors.append({
+                                    'component': component,
+                                    'count': error_count
+                                })
+                    except:
+                        pass
+                
+                log_stats[component] = {
+                    'files': len(files),
+                    'size_mb': round(size, 2),
+                    'errors_today': error_count
+                }
+                
+                total_size += size
+                total_files += len(files)
+        
+        return {
+            'status': 'active',
+            'total_size_mb': round(total_size, 2),
+            'total_files': total_files,
+            'components': log_stats,
+            'recent_errors': recent_errors,
+            'last_check': format_chile_time()
+        }
+        
+    except Exception as e:
+        return {
+            'status': 'error',
+            'message': f'Error reading logs: {str(e)}',
+            'last_check': format_chile_time()
+        }
+
+def get_system_performance():
+    """
+    Get system performance metrics
+    """
+    try:
+        import psutil
+        import os
+        
+        # Memory usage
+        memory = psutil.virtual_memory()
+        
+        # Disk usage for logs directory
+        disk_usage = psutil.disk_usage('.')
+        
+        # CPU usage
+        cpu_percent = psutil.cpu_percent(interval=1)
+        
+        # Process info
+        process = psutil.Process(os.getpid())
+        
+        return {
+            'status': 'active',
+            'memory': {
+                'total_gb': round(memory.total / (1024**3), 2),
+                'available_gb': round(memory.available / (1024**3), 2),
+                'percent_used': memory.percent,
+                'process_mb': round(process.memory_info().rss / (1024**2), 2)
+            },
+            'disk': {
+                'total_gb': round(disk_usage.total / (1024**3), 2),
+                'free_gb': round(disk_usage.free / (1024**3), 2),
+                'percent_used': round((disk_usage.used / disk_usage.total) * 100, 1)
+            },
+            'cpu': {
+                'percent': cpu_percent,
+                'process_percent': round(process.cpu_percent(), 2)
+            },
+            'last_check': format_chile_time()
+        }
+        
+    except ImportError:
+        return {
+            'status': 'unavailable',
+            'message': 'psutil not available - install with: pip install psutil',
+            'last_check': format_chile_time()
+        }
+    except Exception as e:
+        return {
+            'status': 'error',
+            'message': f'Error getting performance metrics: {str(e)}',
+            'last_check': format_chile_time()
+        }
+
+def get_background_process_status():
+    """
+    Get status of background processes
+    """
+    try:
+        # Check if we have recent fetch activity
+        data_status = get_data_status()
+        
+        # Estimate next fetch time (every 10 minutes from last attempt)
+        next_fetch = "Unknown"
+        if data_status.get('last_fetch_time'):
+            last_fetch = parse_chile_time(data_status['last_fetch_time'])
+            next_estimated = last_fetch + timedelta(minutes=10)
+            next_fetch = format_chile_time(next_estimated)
+        
+        # Background fetcher status
+        fetcher_status = {
+            'status': 'running' if data_status.get('last_fetch_time') else 'unknown',
+            'last_fetch': data_status.get('last_fetch_time', 'Never'),
+            'last_success': data_status.get('last_success_time', 'Never'),
+            'next_estimated': next_fetch,
+            'files_fetched': data_status.get('files_fetched', 0),
+            'files_updated': data_status.get('files_updated', 0),
+            'recent_errors': len(data_status.get('errors', [])),
+            'fetch_duration': data_status.get('fetch_duration_seconds', 0)
+        }
+        
+        return {
+            'fetcher': fetcher_status,
+            'last_check': format_chile_time()
+        }
+        
+    except Exception as e:
+        return {
+            'status': 'error',
+            'message': f'Error getting background process status: {str(e)}',
+            'last_check': format_chile_time()
+        }
+
+def calculate_system_health_score(data_status, log_stats, performance_stats):
+    """
+    Calculate overall system health score (0-100)
+    """
+    try:
+        score = 100
+        
+        # Data pipeline health (40% weight)
+        if data_status.get('status') == 'never_fetched':
+            score -= 40
+        elif data_status.get('status') == 'error':
+            score -= 30
+        elif len(data_status.get('errors', [])) > 0:
+            score -= 10
+        
+        # Log health (20% weight)
+        if log_stats.get('status') == 'error':
+            score -= 20
+        elif len(log_stats.get('recent_errors', [])) > 5:
+            score -= 15
+        elif len(log_stats.get('recent_errors', [])) > 0:
+            score -= 5
+        
+        # Performance health (40% weight)
+        if performance_stats.get('status') == 'error':
+            score -= 20
+        elif performance_stats.get('status') == 'active':
+            memory_usage = performance_stats.get('memory', {}).get('percent_used', 0)
+            disk_usage = performance_stats.get('disk', {}).get('percent_used', 0)
+            cpu_usage = performance_stats.get('cpu', {}).get('percent', 0)
+            
+            if memory_usage > 90:
+                score -= 15
+            elif memory_usage > 80:
+                score -= 10
+            
+            if disk_usage > 95:
+                score -= 15
+            elif disk_usage > 90:
+                score -= 10
+            
+            if cpu_usage > 90:
+                score -= 10
+            elif cpu_usage > 80:
+                score -= 5
+        
+        return max(0, min(100, score))
+        
+    except Exception:
+        return 50  # Default middle score if calculation fails
+
+def get_recent_log_entries(component='all', level='ERROR', limit=10):
+    """
+    Get recent log entries for debugging
+    """
+    from pathlib import Path
+    import re
+    
+    logs_dir = Path('logs')
+    today = get_chile_time().strftime('%Y%m%d')
+    entries = []
+    
+    try:
+        components = ['dashboard', 'data_fetching', 'data_processing', 'system'] if component == 'all' else [component]
+        
+        for comp in components:
+            comp_dir = logs_dir / comp
+            if not comp_dir.exists():
+                continue
+                
+            log_file = comp_dir / f"{comp}_{today}.log"
+            if log_file.exists():
+                try:
+                    with open(log_file, 'r') as f:
+                        lines = f.readlines()
+                        
+                    for line in reversed(lines[-100:]):  # Check last 100 lines
+                        if level in line or level == 'ALL':
+                            # Extract timestamp, level, and message
+                            match = re.match(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) CLT - (\w+) - (\w+) - (.+)', line.strip())
+                            if match:
+                                timestamp, logger, log_level, message = match.groups()
+                                entries.append({
+                                    'timestamp': timestamp,
+                                    'component': comp,
+                                    'level': log_level,
+                                    'message': message
+                                })
+                                
+                                if len(entries) >= limit:
+                                    break
+                except Exception:
+                    continue
+                    
+            if len(entries) >= limit:
+                break
+        
+        # Sort by timestamp (most recent first)
+        entries.sort(key=lambda x: x['timestamp'], reverse=True)
+        return entries[:limit]
+        
+    except Exception as e:
+        return [{'timestamp': format_chile_time(), 'component': 'system', 'level': 'ERROR', 
+                'message': f'Error reading log entries: {str(e)}'}] 
