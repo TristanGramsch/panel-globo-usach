@@ -17,6 +17,11 @@ import atexit
 from datetime import datetime, timedelta
 from pathlib import Path
 import logging
+from config.logging_config import (
+    get_dashboard_logger, 
+    setup_all_loggers,
+    log_performance_metric
+)
 
 # Importar desde nuestra estructura modular
 from data.processors import get_current_data, parse_piloto_file, get_sensor_data as get_sensor_data_processor
@@ -32,42 +37,63 @@ background_fetcher_running = False
 background_thread = None
 
 def start_background_fetcher():
-    """Start background data fetching thread"""
-    global background_fetcher_running, background_thread
+    """Start the background data fetching service"""
+    logger = get_dashboard_logger()
+    logger.info("Iniciando servicio de descarga en segundo plano")
     
-    if background_fetcher_running:
-        return
-    
-    background_fetcher_running = True
-    
-    def fetch_loop():
-        """Background loop to fetch data periodically"""
-        logging.info("Iniciando servicio de descarga en segundo plano")
-        
-        # Initial fetch
+    def initial_fetch():
+        """Perform initial data fetch"""
         try:
-            fetch_and_update_data()
+            logger.info("Ejecutando descarga inicial de datos")
+            start_time = get_chile_time()
+            result = fetch_and_update_data()
+            duration = (get_chile_time() - start_time).total_seconds()
+            
+            log_performance_metric(logger, "Initial data fetch", duration, {
+                'success': result,
+                'timestamp': start_time.isoformat()
+            })
+            
         except Exception as e:
-            logging.error(f"Error en descarga inicial: {e}")
-        
-        while background_fetcher_running:
-            try:
-                time.sleep(DATA_FETCH_INTERVAL_MINUTES * 60)  # Convert minutes to seconds
-                if background_fetcher_running:  # Check again after sleep
-                    logging.info("Ejecutando descarga programada de datos")
-                    fetch_and_update_data()
-            except Exception as e:
-                logging.error(f"Error en descarga programada: {e}")
-    
-    background_thread = threading.Thread(target=fetch_loop, daemon=True)
-    background_thread.start()
-    logging.info(f"Servicio de descarga iniciado (cada {DATA_FETCH_INTERVAL_MINUTES} minutos)")
+            logger.error(f"Error en descarga inicial: {e}", exc_info=True)
 
-def stop_background_fetcher():
-    """Stop background data fetching thread"""
-    global background_fetcher_running
-    background_fetcher_running = False
-    logging.info("Deteniendo servicio de descarga en segundo plano")
+    def scheduled_fetch():
+        """Perform scheduled data fetch"""
+        try:
+            logger.info("Ejecutando descarga programada de datos")
+            start_time = get_chile_time()
+            result = fetch_and_update_data()
+            duration = (get_chile_time() - start_time).total_seconds()
+            
+            log_performance_metric(logger, "Scheduled data fetch", duration, {
+                'success': result,
+                'timestamp': start_time.isoformat()
+            })
+            
+        except Exception as e:
+            logger.error(f"Error en descarga programada: {e}", exc_info=True)
+
+    # Perform initial fetch
+    initial_fetch()
+    
+    # Schedule regular fetches
+    scheduler = BackgroundScheduler(timezone=CHILE_TZ)
+    scheduler.add_job(
+        func=scheduled_fetch,
+        trigger="interval",
+        minutes=DATA_FETCH_INTERVAL_MINUTES,
+        id='data_fetch'
+    )
+    scheduler.start()
+    logger.info(f"Servicio de descarga iniciado (cada {DATA_FETCH_INTERVAL_MINUTES} minutos)")
+    return scheduler
+
+def stop_background_fetcher(scheduler):
+    """Stop the background data fetching service"""
+    logger = get_dashboard_logger()
+    if scheduler:
+        scheduler.shutdown()
+        logger.info("Deteniendo servicio de descarga en segundo plano")
 
 # Register cleanup function
 atexit.register(stop_background_fetcher)
@@ -167,8 +193,14 @@ def get_sensor_data(sensor_id, start_date=None, end_date=None):
     return get_sensor_data_processor(sensor_id, start_date, end_date)
 
 def get_sensor_health_status():
-    """Analizar el estado de salud de todos los sensores"""
+    """
+    Calculate sensor health status based on last data received
+    Returns dict with health information
+    """
+    logger = get_dashboard_logger()
+    
     try:
+        start_time = get_chile_time()
         data_dir = Path('piloto_data')
         if not data_dir.exists():
             return {
@@ -251,6 +283,15 @@ def get_sensor_health_status():
             else:
                 health['status'] = 'critical'
         
+        duration = (get_chile_time() - start_time).total_seconds()
+        
+        log_performance_metric(logger, "Sensor health calculation", duration, {
+            'total_sensors': len(sensor_health),
+            'healthy_count': sum(1 for h in sensor_health.values() if h['status'] == 'healthy'),
+            'warning_count': sum(1 for h in sensor_health.values() if h['status'] == 'warning'),
+            'critical_count': sum(1 for h in sensor_health.values() if h['status'] == 'critical')
+        })
+        
         return {
             'sensors': sensor_health,
             'total_sensors': len(all_sensors),
@@ -261,7 +302,7 @@ def get_sensor_health_status():
         }
         
     except Exception as e:
-        logging.error(f"Error in get_sensor_health_status: {e}")
+        logger.error(f"Error in get_sensor_health_status: {e}", exc_info=True)
         return {
             'status': 'error',
             'error_message': str(e),
@@ -492,8 +533,13 @@ def create_sensor_comparison_plot():
         return create_empty_plot("Error al crear el gráfico")
 
 def get_dashboard_stats():
-    """Obtener estadísticas generales del dashboard"""
+    """
+    Get comprehensive dashboard statistics including data freshness
+    """
+    logger = get_dashboard_logger()
+    
     try:
+        start_time = get_chile_time()
         current_data = get_current_data()
         data_freshness = get_data_freshness()
         
@@ -511,6 +557,14 @@ def get_dashboard_stats():
         min_mp1 = round(current_data['MP1'].min(), 1)
         total_data_points = len(current_data)
         
+        duration = (get_chile_time() - start_time).total_seconds()
+        
+        log_performance_metric(logger, "Dashboard stats calculation", duration, {
+            'sensor_count': total_sensors,
+            'data_points': total_data_points,
+            'data_status': data_freshness['status']
+        })
+        
         return {
             'status': 'success',
             'total_sensors': total_sensors,
@@ -523,7 +577,7 @@ def get_dashboard_stats():
         }
         
     except Exception as e:
-        logging.error(f"Error in get_dashboard_stats: {e}")
+        logger.error(f"Error in get_dashboard_stats: {e}", exc_info=True)
         return {
             'status': 'error',
             'last_update': format_chile_time(),
@@ -1321,28 +1375,51 @@ app.index_string = '''
 '''
 
 if __name__ == '__main__':
-    print("Iniciando Panel de Control de Calidad del Aire USACH...")
-    print("El panel estará disponible en: http://localhost:8051")
-    print()
-    
-    # Start background data fetcher
-    print("Iniciando servicio de descarga automática de datos...")
-    start_background_fetcher()
-    print(f"✓ Datos se actualizarán automáticamente cada {DATA_FETCH_INTERVAL_MINUTES} minutos")
-    print()
-    
-    print("Características del panel:")
-    print("   - Resumen General (Pestaña 1)")
-    print("   - Análisis de Sensor Específico (Pestaña 2)")
-    print("   - Estado de Sensores (Pestaña 3)")
-    print("   - Actualización automática de datos en segundo plano")
-    print()
-    print("Presione Ctrl+C para detener el servidor")
-    print("-" * 60)
-    
     try:
-        app.run(debug=False, host='0.0.0.0', port=8051)
+        # Initialize logging system
+        setup_all_loggers()
+        logger = get_dashboard_logger()
+        
+        # Log startup
+        logger.info("="*60)
+        logger.info("INICIANDO PANEL DE CONTROL DE CALIDAD DEL AIRE USACH")
+        logger.info("="*60)
+        
+        print("Iniciando Panel de Control de Calidad del Aire USACH...")
+        print(f"El panel estará disponible en: http://localhost:{PORT}")
+        
+        # Start background data fetcher
+        print("Iniciando servicio de descarga automática de datos...")
+        scheduler = start_background_fetcher()
+        print("✓ Datos se actualizarán automáticamente cada 10 minutos")
+        
+        # Display features
+        print("Características del panel:")
+        print("   - Resumen General (Pestaña 1)")
+        print("   - Análisis de Sensor Específico (Pestaña 2)")
+        print("   - Estado de Sensores (Pestaña 3)")
+        print("   - Actualización automática de datos en segundo plano")
+        print("Presione Ctrl+C para detener el servidor")
+        print("-" * 60)
+        
+        logger.info(f"Panel iniciado en puerto {PORT}")
+        logger.info("Servicio de descarga automática activado")
+        
+        # Start the Dash app
+        app.run(host='0.0.0.0', port=PORT, debug=False)
+        
     except KeyboardInterrupt:
-        print("\nDeteniendo servidor...")
-        stop_background_fetcher()
-        print("Servidor detenido.")
+        logger.info("Interrupción de usuario detectada")
+        print("\n✓ Deteniendo el servidor...")
+        stop_background_fetcher(scheduler)
+        logger.info("Servidor detenido correctamente")
+        
+    except Exception as e:
+        logger.critical(f"Error crítico al iniciar la aplicación: {e}", exc_info=True)
+        print(f"\n✗ Error crítico: {e}")
+        print("Revise los logs para más detalles")
+        
+    finally:
+        logger.info("="*60)
+        logger.info("PANEL DE CONTROL FINALIZADO")
+        logger.info("="*60)

@@ -17,6 +17,11 @@ from typing import List, Dict, Optional, Tuple
 from urllib.parse import urljoin
 import hashlib
 from config.settings import PROJECT_ROOT, get_chile_time, format_chile_time, get_chile_date, DATA_SERVER_URL, DATA_FETCH_TIMEOUT_SECONDS, update_data_status
+from config.logging_config import (
+    get_data_fetching_logger,
+    log_performance_metric,
+    log_data_operation
+)
 
 # Configuración
 BASE_URL = DATA_SERVER_URL
@@ -35,25 +40,19 @@ LOG_DIR.mkdir(exist_ok=True)
 chile_time_str = get_chile_time().strftime('%Y%m%d')
 log_file = os.path.join(LOG_DIR, f"piloto_fetcher_{chile_time_str}.log")
 
-# Set up logging
 def setup_logging():
-    """Set up logging configuration"""
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_file, encoding='utf-8'),
-            logging.StreamHandler()
-        ]
-    )
-    return logging.getLogger(__name__)
+    """Setup logging for the fetcher - now using centralized logging"""
+    # Just return the centralized logger
+    return get_data_fetching_logger()
 
 class PilotoFileFetcher:
     def __init__(self, base_url: str = BASE_URL, local_dir: str = DATA_DIR):
         self.base_url = base_url
         self.local_dir = Path(local_dir)
         self.local_dir.mkdir(exist_ok=True)
-        self.logger = setup_logging()
+        
+        # Use centralized logger
+        self.logger = get_data_fetching_logger()
         self.session = requests.Session()
         self.session.headers.update({'User-Agent': USER_AGENT})
         self.session.timeout = DATA_FETCH_TIMEOUT_SECONDS
@@ -73,7 +72,7 @@ class PilotoFileFetcher:
             return False
     
     def get_directory_listing(self) -> Optional[str]:
-        """Fetch the directory listing from the server"""
+        """Get the HTML listing of files from the server"""
         for attempt in range(RETRY_ATTEMPTS):
             try:
                 self.logger.info(f"Fetching directory listing (attempt {attempt + 1}/{RETRY_ATTEMPTS})")
@@ -81,12 +80,12 @@ class PilotoFileFetcher:
                 response.raise_for_status()
                 return response.text
             except requests.RequestException as e:
-                self.logger.warning(f"Attempt {attempt + 1} failed: {e}")
+                self.logger.warning(f"Directory listing attempt {attempt + 1} failed: {e}")
                 if attempt < RETRY_ATTEMPTS - 1:
                     time.sleep(RETRY_DELAY)
-                else:
-                    self.logger.error("All attempts to fetch directory listing failed")
-                    return None
+                    
+        self.logger.error("All attempts to fetch directory listing failed")
+        return None
     
     def parse_piloto_files(self, html_content: str) -> List[Dict[str, str]]:
         """Parse HTML content to extract Piloto file information"""
@@ -244,102 +243,165 @@ class PilotoFileFetcher:
         return sensor_counts
     
     def run_fetch_cycle(self) -> Dict[str, any]:
-        """Run a complete fetch cycle"""
-        start_time = time.time()
+        """Run a complete fetch cycle and return statistics"""
+        start_time = get_chile_time()
+        self.logger.info("Starting Piloto file fetch cycle")
+        
         stats = {
-            'start_time': get_chile_time(),
+            'start_time': start_time,
             'server_accessible': False,
             'files_found': 0,
             'files_downloaded': 0,
             'files_updated': 0,
             'files_skipped': 0,
             'errors': 0,
-            'sensors': {}
+            'sensors': {},
+            'elapsed_time': 0
         }
-        
-        self.logger.info("Starting Piloto file fetch cycle")
-        
-        # Check server health
-        if not self.check_server_health():
-            stats['errors'] += 1
-            return stats
-        
-        stats['server_accessible'] = True
-        
-        # Get directory listing
-        html_content = self.get_directory_listing()
-        if not html_content:
-            stats['errors'] += 1
-            return stats
-        
-        # Parse Piloto files
-        all_files = self.parse_piloto_files(html_content)
-        current_month_files = self.filter_current_month_files(all_files)
-        
-        stats['files_found'] = len(current_month_files)
-        stats['sensors'] = self.get_sensor_summary(current_month_files)
-        
-        # Download/update files
-        for file_info in current_month_files:
-            filename = file_info['filename']
-            
-            if self.should_download_file(file_info):
-                if self.download_file(filename):
-                    local_info = self.get_local_file_info(filename)
-                    if local_info['exists']:
-                        if local_info['mtime'].date() == get_chile_time().date():
-                            stats['files_updated'] += 1
+
+        try:
+            # Check server health
+            if not self.check_server_health():
+                log_data_operation(
+                    self.logger, 
+                    "fetch_cycle_failed", 
+                    details={'reason': 'server_not_accessible'}
+                )
+                return stats
+
+            stats['server_accessible'] = True
+
+            # Get directory listing
+            html_content = self.get_directory_listing()
+            if not html_content:
+                log_data_operation(
+                    self.logger, 
+                    "fetch_cycle_failed", 
+                    details={'reason': 'could_not_get_directory_listing'}
+                )
+                return stats
+
+            # Parse files and filter
+            all_files = self.parse_piloto_files(html_content)
+            self.logger.info(f"Found {len(all_files)} Piloto files")
+            stats['files_found'] = len(all_files)
+
+            current_month_files = self.filter_current_month_files(all_files)
+            current_month_str = get_chile_time().strftime('%m%y')
+            self.logger.info(f"Filtered to {len(current_month_files)} files for current month ({current_month_str})")
+
+            # Process each file
+            for file_info in current_month_files:
+                filename = file_info['filename']
+                
+                try:
+                    if self.should_download_file(file_info):
+                        if self.download_file(filename):
+                            if file_info.get('is_new', False):
+                                stats['files_downloaded'] += 1
+                            else:
+                                stats['files_updated'] += 1
                         else:
-                            stats['files_downloaded'] += 1
-                else:
+                            stats['errors'] += 1
+                    else:
+                        stats['files_skipped'] += 1
+                        
+                except Exception as e:
+                    self.logger.error(f"Error processing file {filename}: {e}")
                     stats['errors'] += 1
-            else:
-                stats['files_skipped'] += 1
-        
-        elapsed_time = time.time() - start_time
-        stats['elapsed_time'] = elapsed_time
-        
-        self.logger.info(f"Fetch cycle completed in {elapsed_time:.2f}s")
-        self.logger.info(f"Summary: {stats['files_downloaded']} downloaded, "
-                        f"{stats['files_updated']} updated, "
-                        f"{stats['files_skipped']} skipped, "
-                        f"{stats['errors']} errors")
-        
+
+            # Calculate elapsed time
+            end_time = get_chile_time()
+            elapsed_time = (end_time - start_time).total_seconds()
+            stats['elapsed_time'] = elapsed_time
+
+            # Get sensor summary
+            stats['sensors'] = self.get_sensor_summary(current_month_files)
+
+            # Log completion
+            self.logger.info(f"Fetch cycle completed in {elapsed_time:.2f}s")
+            log_data_operation(
+                self.logger,
+                "fetch_cycle_completed",
+                file_count=stats['files_found'],
+                success_count=stats['files_downloaded'] + stats['files_updated'],
+                error_count=stats['errors'],
+                details={
+                    'duration_seconds': elapsed_time,
+                    'files_downloaded': stats['files_downloaded'],
+                    'files_updated': stats['files_updated'],
+                    'files_skipped': stats['files_skipped'],
+                    'sensors_detected': len(stats['sensors'])
+                }
+            )
+
+        except Exception as e:
+            self.logger.error(f"Unexpected error in fetch cycle: {e}", exc_info=True)
+            stats['errors'] += 1
+
         return stats
 
 def fetch_and_update_data():
-    """Main function to fetch data and update status"""
+    """
+    Main function to fetch data and update status
+    Enhanced with detailed logging
+    """
+    logger = get_data_fetching_logger()
     start_time = get_chile_time()
+    
+    logger.info(f"Iniciando descarga de datos a las {format_chile_time(start_time)}")
+    
+    # Initialize tracking variables
     files_fetched = 0
     files_updated = 0
     success = False
-    error_msg = None
+    error_msg = ""
     
     try:
-        logging.info(f"Iniciando descarga de datos a las {format_chile_time(start_time)}")
+        # Setup logging for the session
+        setup_logging()
         
-        # Create fetcher instance
+        # Create fetcher and run cycle
         fetcher = PilotoFileFetcher()
         
-        # Run the fetch operation
-        results = fetcher.run_fetch_cycle()
-        
-        if results['server_accessible']:
-            files_fetched = results['files_found']
-            files_updated = results['files_updated']
-            success = True
-            logging.info(f"Descarga exitosa: {files_fetched} archivos encontrados, {files_updated} actualizados")
+        if fetcher.check_server_health():
+            # Run the fetch cycle
+            stats = fetcher.run_fetch_cycle()
+            
+            # Extract results
+            files_fetched = stats.get('files_found', 0)
+            files_updated = stats.get('files_updated', 0) + stats.get('files_downloaded', 0)
+            success = stats.get('errors', 1) == 0  # Success if no errors
+            
+            if success:
+                logger.info(f"Descarga exitosa: {files_fetched} archivos encontrados, {files_updated} actualizados")
+            else:
+                error_msg = f"Descarga completada con {stats.get('errors', 0)} errores"
+                logger.warning(error_msg)
         else:
             error_msg = "No se pudo acceder al servidor"
-            logging.error(error_msg)
+            logger.error(error_msg)
             
     except Exception as e:
         error_msg = f"Error durante la descarga: {str(e)}"
-        logging.error(error_msg)
+        logger.error(error_msg, exc_info=True)
     
     # Calculate duration
     end_time = get_chile_time()
     duration = (end_time - start_time).total_seconds()
+    
+    # Log performance metric
+    log_performance_metric(
+        logger,
+        "Data fetch operation",
+        duration,
+        {
+            'files_fetched': files_fetched,
+            'files_updated': files_updated,
+            'success': success,
+            'error_msg': error_msg if error_msg else None
+        }
+    )
     
     # Update status
     update_data_status(
@@ -352,7 +414,7 @@ def fetch_and_update_data():
         duration=duration
     )
     
-    logging.info(f"Proceso completado en {duration:.1f} segundos")
+    logger.info(f"Proceso completado en {duration:.1f} segundos")
     return success
 
 def main():

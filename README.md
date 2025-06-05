@@ -52,7 +52,8 @@ panel-globo-usach/
 ├── .gitignore               # Git ignore rules
 │
 ├── config/
-│   └── settings.py          # Configuration settings and WHO guidelines
+│   ├── settings.py          # Configuration settings and WHO guidelines
+│   └── logging_config.py    # Centralized logging configuration
 │
 ├── data/
 │   ├── processors.py        # Data parsing and processing functions
@@ -61,8 +62,11 @@ panel-globo-usach/
 ├── utils/
 │   └── helpers.py           # Air quality categorization and utility functions
 │
+├── scripts/
+│   └── manage_logs.py       # Log management and cleanup utilities
+│
 ├── piloto_data/             # Sensor data files (.dat format)
-├── logs/                    # Application and system logs
+├── logs/                    # Application and system logs (organized by component)
 ├── instructions/            # Project documentation and requirements
 └── piloto_env/             # Python virtual environment (if using pip)
 ```
@@ -87,11 +91,26 @@ panel-globo-usach/
 3. `dashboard.py` displays real-time visualization
 4. Auto-refresh every 10 minutes
 
-## 📝 Logging
+## 📝 Logging Strategy
 
-- Main logs: `logs/`
-- Data processing errors and sensor status tracked
-- Server connection status monitoring
+The system implements a comprehensive logging architecture with centralized configuration (`config/logging_config.py`) that provides Chile timezone-aware logging across four main components: dashboard, data_fetching, data_processing, and system operations. Each component generates both human-readable logs and structured JSON logs stored in organized directories (`logs/dashboard/`, `logs/data_fetching/`, etc.) with automatic daily rotation, error-specific log files, and performance metrics tracking. The logging system includes automated cleanup and archival capabilities through `scripts/manage_logs.py` which compresses old logs, manages retention policies (7-day active, 30+ day archive), and provides detailed status reports. All logs use Chile timezone formatting and include comprehensive error handling, performance tracking with execution times, and structured data for analysis, making troubleshooting and system monitoring efficient and organized.
+
+## 🛠️ Log Management
+
+```bash
+# View current log status and disk usage
+python scripts/manage_logs.py status
+
+# Clean up old logs (dry run first)
+python scripts/manage_logs.py cleanup --dry-run
+python scripts/manage_logs.py cleanup
+
+# Archive logs older than specific days
+python scripts/manage_logs.py archive --days 7
+
+# Purge old archives
+python scripts/manage_logs.py purge --days 90
+```
 
 ---
 
