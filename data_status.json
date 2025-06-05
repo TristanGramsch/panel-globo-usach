@@ -1,9 +1,9 @@
 {
-  "last_fetch_time": "2025-06-05T15:10:39.404639-03:00",
-  "last_success_time": "2025-06-05T15:10:39.404639-03:00",
+  "last_fetch_time": "2025-06-05T17:30:41.220752-03:00",
+  "last_success_time": "2025-06-05T17:30:41.220752-03:00",
   "status": "success",
   "files_fetched": 8345,
   "files_updated": 4,
   "errors": [],
-  "fetch_duration_seconds": 21.719441
+  "fetch_duration_seconds": 19.931819
 }

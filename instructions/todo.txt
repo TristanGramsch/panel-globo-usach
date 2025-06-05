@@ -1,0 +1,16 @@
+Create a strategy for:
+	Refresh.
+	Logs.
+	Viz.
+	
+Implement a db.
+
+Fix desarrollador. 
+
+Less verbose. Very less Emojis. 
+
+Estado de sensores. Redundant "Los sensores se consideran saludables si han enviado datos hoy. Estado de advertencia si enviaron ayer."
+
+Migrate fully to Conda.
+
+Minimize. 

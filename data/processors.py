@@ -179,15 +179,181 @@ def get_sensor_date_range(sensor_id):
         logger.error(f"Error getting date range: {e}", exc_info=True)
         return None, None
 
+def parse_piloto_file_header(file_path):
+    """
+    Parse file header to create dynamic column mapping
+    
+    Args:
+        file_path (Path): Path to the data file
+        
+    Returns:
+        dict: Column name to index mapping, or None if failed
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            # Read first few lines to find header
+            header_line = None
+            for line_num, line in enumerate(f, 1):
+                line = line.strip()
+                if line.startswith('Ds,'):
+                    header_line = line
+                    break
+                if line_num > 10:  # Don't search too far
+                    break
+            
+            if not header_line:
+                logger.warning(f"No header line found in {file_path.name}")
+                return None
+            
+            # Parse header columns
+            columns = [col.strip() for col in header_line.split(',')]
+            column_map = {}
+            
+            # Create mapping for important columns
+            for i, col in enumerate(columns):
+                col_lower = col.lower()
+                if 'fecha' in col_lower:
+                    column_map['date'] = i
+                elif 'hora' in col_lower:
+                    column_map['time'] = i
+                elif 'tem_bme280' in col_lower or 'temp' in col_lower:
+                    column_map['temperature'] = i
+                elif 'hum_bme280' in col_lower or 'hum' in col_lower:
+                    column_map['humidity'] = i
+                elif 'pres_bme280' in col_lower or 'pres' in col_lower:
+                    column_map['pressure'] = i
+                elif 'mp1.0' in col_lower:
+                    column_map['mp1'] = i
+                elif 'mp2.5' in col_lower:
+                    column_map['mp25'] = i
+                elif 'mp10' in col_lower and 'n10' not in col_lower:
+                    column_map['mp10'] = i
+                elif 'rad_solar' in col_lower:
+                    column_map['solar_radiation'] = i
+            
+            logger.debug(f"Parsed header for {file_path.name}: {len(columns)} columns, mapped: {list(column_map.keys())}")
+            return column_map
+            
+    except Exception as e:
+        logger.warning(f"Error parsing header for {file_path.name}: {e}")
+        return None
+
+def validate_sensor_data(value, data_type):
+    """
+    Validate sensor data within reasonable bounds
+    
+    Args:
+        value (float): The sensor value
+        data_type (str): Type of data (temperature, humidity, etc.)
+        
+    Returns:
+        tuple: (is_valid, validated_value)
+    """
+    if value is None:
+        return False, 0.0
+    
+    # Define reasonable bounds for different sensor types
+    bounds = {
+        'temperature': (-50.0, 60.0),  # °C
+        'humidity': (0.0, 100.0),      # %
+        'pressure': (800.0, 1200.0),   # mb
+        'mp1': (0.0, 1000.0),          # µg/m³
+        'mp25': (0.0, 1000.0),         # µg/m³
+        'mp10': (0.0, 1000.0),         # µg/m³
+        'solar_radiation': (0.0, 2000.0)  # W/m²
+    }
+    
+    if data_type not in bounds:
+        return True, value  # Unknown type, accept as-is
+    
+    min_val, max_val = bounds[data_type]
+    if min_val <= value <= max_val:
+        return True, value
+    else:
+        # Value out of bounds, but don't reject entirely
+        # Clamp to bounds and mark as suspect
+        clamped_value = max(min_val, min(max_val, value))
+        return False, clamped_value
+
+def extract_data_by_header(parts, column_map, file_name):
+    """
+    Extract data using dynamic column positions
+    
+    Args:
+        parts (list): Split line parts
+        column_map (dict): Column mapping from header parsing
+        file_name (str): File name for logging
+        
+    Returns:
+        dict: Extracted data row or None if failed
+    """
+    try:
+        # Extract timestamp first
+        date_idx = column_map.get('date', 1)
+        time_idx = column_map.get('time', 2)
+        
+        if date_idx >= len(parts) or time_idx >= len(parts):
+            return None
+            
+        date_str = parts[date_idx]
+        time_str = parts[time_idx]
+        timestamp = parse_timestamp(date_str, time_str)
+        
+        if not timestamp:
+            return None
+        
+        # Extract sensor data with validation
+        row = {'Timestamp': timestamp}
+        validation_warnings = []
+        
+        # Extract and validate each data type
+        data_mappings = [
+            ('temperature', 'Temperature'),
+            ('humidity', 'Humidity'), 
+            ('pressure', 'Pressure'),
+            ('mp1', 'MP1'),
+            ('mp25', 'MP25'),
+            ('mp10', 'MP10'),
+            ('solar_radiation', 'Solar_Radiation')
+        ]
+        
+        for col_key, row_key in data_mappings:
+            if col_key in column_map:
+                idx = column_map[col_key]
+                if idx < len(parts):
+                    raw_value = safe_float(parts[idx])
+                    is_valid, validated_value = validate_sensor_data(raw_value, col_key)
+                    row[row_key] = validated_value
+                    
+                    if not is_valid and raw_value is not None:
+                        validation_warnings.append(f"{row_key}: {raw_value} -> {validated_value}")
+                else:
+                    row[row_key] = 0.0
+            else:
+                row[row_key] = 0.0
+        
+        # Add sensor ID
+        row['Sensor_ID'] = extract_sensor_id_from_filename(file_name)
+        
+        # Log validation warnings (limited)
+        if validation_warnings and len(validation_warnings) <= 3:
+            logger.debug(f"Data validation warnings in {file_name}: {', '.join(validation_warnings)}")
+        
+        return row
+        
+    except Exception as e:
+        logger.debug(f"Error extracting data from line in {file_name}: {e}")
+        return None
+
 def parse_piloto_file(file_path):
     """
-    Parse a single piloto data file
+    Parse a single piloto data file with dynamic header parsing
     
     Args:
         file_path (str): Path to the data file
         
     Returns:
-        pd.DataFrame or None: Parsed data or None if failed
+        pd.DataFrame: Parsed data or empty DataFrame if failed
     """
     try:
         start_time = get_chile_time()
@@ -199,10 +365,21 @@ def parse_piloto_file(file_path):
         file_size = file_path.stat().st_size
         logger.debug(f"Parsing file {file_path.name} ({file_size} bytes)")
         
+        # Parse header to get column mapping
+        column_map = parse_piloto_file_header(file_path)
+        if not column_map:
+            logger.warning(f"Could not parse header for {file_path.name}, using fallback parsing")
+            # Fallback to original logic for files without proper headers
+            column_map = {
+                'date': 1, 'time': 2, 'temperature': 3, 'humidity': 4, 
+                'pressure': 5, 'mp1': 7, 'mp25': 8, 'mp10': 9
+            }
+        
         # Read and process the file
         data = []
         line_count = 0
         error_count = 0
+        validation_warnings = 0
         
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             for line_num, line in enumerate(f, 1):
@@ -222,36 +399,18 @@ def parse_piloto_file(file_path):
                     # Split the line by comma and clean up whitespace
                     parts = [part.strip() for part in line.split(',')]
                     
-                    if len(parts) < 12:  # Minimum required columns for basic data
+                    if len(parts) < max(column_map.values()) + 1:  # Ensure we have enough columns
                         continue
                     
-                    # Extract the main data fields according to the file format
-                    # Format: Day, Date, Time, Temp, Humidity, Pressure, Altitude, MP1.0, MP2.5, MP10, etc.
-                    day_name = parts[0]  # Lu, Ma, Mi, Ju, Vi, Sa, Do
-                    date_str = parts[1]  # DD-MM-YY
-                    time_str = parts[2]  # HH:MM:SS
+                    # Extract data using dynamic column mapping
+                    row = extract_data_by_header(parts, column_map, file_path.name)
                     
-                    # Parse timestamp
-                    timestamp = parse_timestamp(date_str, time_str)
-                    
-                    if timestamp:
-                        # Extract the air quality and environmental data
-                        # Based on the header: MP1.0 is at index 7, MP2.5 at 8, MP10 at 9
-                        row = {
-                            'Timestamp': timestamp,
-                            'MP1': safe_float(parts[7]) if len(parts) > 7 else 0.0,
-                            'MP25': safe_float(parts[8]) if len(parts) > 8 else 0.0,
-                            'MP10': safe_float(parts[9]) if len(parts) > 9 else 0.0,
-                            'Temperature': safe_float(parts[3]) if len(parts) > 3 else 0.0,
-                            'Humidity': safe_float(parts[4]) if len(parts) > 4 else 0.0,
-                            'Pressure': safe_float(parts[5]) if len(parts) > 5 else 0.0,
-                            'Sensor_ID': extract_sensor_id_from_filename(file_path.name)
-                        }
+                    if row:
                         data.append(row)
                     else:
                         error_count += 1
                         if error_count <= 5:  # Log only first 5 errors
-                            logger.warning(f"Invalid timestamp in {file_path.name}, line {line_num}: {date_str} {time_str}")
+                            logger.warning(f"Could not extract data from {file_path.name}, line {line_num}")
                             
                 except Exception as e:
                     error_count += 1
@@ -267,6 +426,9 @@ def parse_piloto_file(file_path):
         
         duration = (get_chile_time() - start_time).total_seconds()
         
+        # Enhanced logging
+        success_rate = (len(df) / max(line_count - 3, 1)) * 100  # Subtract header lines
+        
         log_data_operation(
             logger,
             "file_parsing",
@@ -279,9 +441,16 @@ def parse_piloto_file(file_path):
                 'lines_processed': line_count,
                 'data_rows_extracted': len(df),
                 'parsing_errors': error_count,
+                'success_rate_percent': round(success_rate, 1),
+                'columns_detected': len(column_map),
                 'duration_seconds': duration
             }
         )
+        
+        if len(df) == 0 and error_count > 0:
+            logger.warning(f"File {file_path.name} produced no valid data rows ({error_count} errors)")
+        elif error_count > 0:
+            logger.info(f"File {file_path.name} parsed with {len(df)} rows ({error_count} errors, {success_rate:.1f}% success)")
         
         return df
         
