@@ -16,10 +16,10 @@ from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from urllib.parse import urljoin
 import hashlib
-from config.settings import PROJECT_ROOT, get_chile_time, format_chile_time, get_chile_date
+from config.settings import PROJECT_ROOT, get_chile_time, format_chile_time, get_chile_date, DATA_SERVER_URL, DATA_FETCH_TIMEOUT_SECONDS, update_data_status
 
 # Configuración
-BASE_URL = "http://ambiente.usach.cl/globo/"
+BASE_URL = DATA_SERVER_URL
 DATA_DIR = PROJECT_ROOT / 'piloto_data'
 LOG_DIR = PROJECT_ROOT / 'logs'
 REQUEST_TIMEOUT = 30
@@ -42,8 +42,8 @@ def setup_logging():
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler(sys.stdout)
+            logging.FileHandler(log_file, encoding='utf-8'),
+            logging.StreamHandler()
         ]
     )
     return logging.getLogger(__name__)
@@ -56,6 +56,7 @@ class PilotoFileFetcher:
         self.logger = setup_logging()
         self.session = requests.Session()
         self.session.headers.update({'User-Agent': USER_AGENT})
+        self.session.timeout = DATA_FETCH_TIMEOUT_SECONDS
         
     def check_server_health(self) -> bool:
         """Check if the server is accessible"""
@@ -306,10 +307,53 @@ class PilotoFileFetcher:
         
         return stats
 
-def fetch_piloto_files():
-    """Convenience function to run a fetch cycle"""
-    fetcher = PilotoFileFetcher()
-    return fetcher.run_fetch_cycle()
+def fetch_and_update_data():
+    """Main function to fetch data and update status"""
+    start_time = get_chile_time()
+    files_fetched = 0
+    files_updated = 0
+    success = False
+    error_msg = None
+    
+    try:
+        logging.info(f"Iniciando descarga de datos a las {format_chile_time(start_time)}")
+        
+        # Create fetcher instance
+        fetcher = PilotoFileFetcher()
+        
+        # Run the fetch operation
+        results = fetcher.run_fetch_cycle()
+        
+        if results['server_accessible']:
+            files_fetched = results['files_found']
+            files_updated = results['files_updated']
+            success = True
+            logging.info(f"Descarga exitosa: {files_fetched} archivos encontrados, {files_updated} actualizados")
+        else:
+            error_msg = "No se pudo acceder al servidor"
+            logging.error(error_msg)
+            
+    except Exception as e:
+        error_msg = f"Error durante la descarga: {str(e)}"
+        logging.error(error_msg)
+    
+    # Calculate duration
+    end_time = get_chile_time()
+    duration = (end_time - start_time).total_seconds()
+    
+    # Update status
+    update_data_status(
+        status='success' if success else 'error',
+        fetch_time=start_time,
+        success=success,
+        files_fetched=files_fetched,
+        files_updated=files_updated,
+        error_msg=error_msg,
+        duration=duration
+    )
+    
+    logging.info(f"Proceso completado en {duration:.1f} segundos")
+    return success
 
 def main():
     """Main execution function"""

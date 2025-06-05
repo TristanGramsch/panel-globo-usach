@@ -6,11 +6,18 @@ Central configuration for WHO guidelines, paths, and application constants
 
 from pathlib import Path
 from datetime import timedelta, datetime, timezone
+import json
 
 # Project Paths
 PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR = PROJECT_ROOT / 'piloto_data'
 LOGS_DIR = PROJECT_ROOT / 'logs'
+DATA_STATUS_FILE = PROJECT_ROOT / 'data_status.json'
+
+# Data Fetching Configuration
+DATA_FETCH_INTERVAL_MINUTES = 10  # How often to fetch data
+DATA_SERVER_URL = "http://ambiente.usach.cl/globo/"
+DATA_FETCH_TIMEOUT_SECONDS = 30
 
 # Timezone Configuration
 # Chile Standard Time (CLT) - UTC-3 (Chile stopped observing DST in 2019)
@@ -36,6 +43,111 @@ def format_chile_time(dt=None, format_str='%Y-%m-%d %H:%M:%S'):
 def get_chile_date():
     """Get current date in Chile timezone"""
     return get_chile_time().date()
+
+# Data Status Management
+def get_data_status():
+    """Get current data fetching status"""
+    try:
+        if DATA_STATUS_FILE.exists():
+            with open(DATA_STATUS_FILE, 'r', encoding='utf-8') as f:
+                status = json.load(f)
+                # Convert ISO timestamps back to datetime objects
+                if 'last_fetch_time' in status and status['last_fetch_time']:
+                    status['last_fetch_time'] = datetime.fromisoformat(status['last_fetch_time'].replace('Z', '+00:00'))
+                if 'last_success_time' in status and status['last_success_time']:
+                    status['last_success_time'] = datetime.fromisoformat(status['last_success_time'].replace('Z', '+00:00'))
+                return status
+    except Exception as e:
+        pass
+    
+    # Return default status if file doesn't exist or has errors
+    return {
+        'last_fetch_time': None,
+        'last_success_time': None,
+        'status': 'never_fetched',
+        'files_fetched': 0,
+        'files_updated': 0,
+        'errors': [],
+        'fetch_duration_seconds': 0
+    }
+
+def update_data_status(status, fetch_time=None, success=True, files_fetched=0, files_updated=0, error_msg=None, duration=0):
+    """Update data fetching status"""
+    try:
+        current_status = get_data_status()
+        
+        if fetch_time is None:
+            fetch_time = get_chile_time()
+        
+        # Update status
+        current_status['last_fetch_time'] = fetch_time
+        current_status['files_fetched'] = files_fetched
+        current_status['files_updated'] = files_updated
+        current_status['fetch_duration_seconds'] = duration
+        
+        if success:
+            current_status['status'] = 'success'
+            current_status['last_success_time'] = fetch_time
+            current_status['errors'] = []  # Clear errors on success
+        else:
+            current_status['status'] = 'error'
+            if error_msg:
+                if 'errors' not in current_status:
+                    current_status['errors'] = []
+                current_status['errors'].append({
+                    'time': fetch_time.isoformat(),
+                    'message': error_msg
+                })
+                # Keep only last 5 errors
+                current_status['errors'] = current_status['errors'][-5:]
+        
+        # Convert datetime objects to ISO strings for JSON storage
+        status_to_save = current_status.copy()
+        if status_to_save['last_fetch_time']:
+            status_to_save['last_fetch_time'] = status_to_save['last_fetch_time'].isoformat()
+        if status_to_save['last_success_time']:
+            status_to_save['last_success_time'] = status_to_save['last_success_time'].isoformat()
+        
+        # Save to file
+        with open(DATA_STATUS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(status_to_save, f, indent=2, ensure_ascii=False)
+            
+        return True
+    except Exception as e:
+        return False
+
+def get_data_freshness():
+    """Get information about how fresh the data is"""
+    status = get_data_status()
+    current_time = get_chile_time()
+    
+    if not status['last_success_time']:
+        return {
+            'status': 'no_data',
+            'message': 'No se han obtenido datos del servidor',
+            'age_minutes': None,
+            'last_update': 'Nunca'
+        }
+    
+    age = current_time - status['last_success_time']
+    age_minutes = age.total_seconds() / 60
+    
+    if age_minutes < DATA_FETCH_INTERVAL_MINUTES * 1.5:  # Allow 50% tolerance
+        freshness_status = 'fresh'
+        message = f'Datos actualizados (hace {int(age_minutes)} minutos)'
+    elif age_minutes < DATA_FETCH_INTERVAL_MINUTES * 3:
+        freshness_status = 'stale'
+        message = f'Datos un poco desactualizados (hace {int(age_minutes)} minutos)'
+    else:
+        freshness_status = 'very_stale'
+        message = f'Datos muy desactualizados (hace {int(age_minutes)} minutos)'
+    
+    return {
+        'status': freshness_status,
+        'message': message,
+        'age_minutes': age_minutes,
+        'last_update': format_chile_time(status['last_success_time'])
+    }
 
 # Dashboard Configuration
 DEFAULT_PORT = 8050

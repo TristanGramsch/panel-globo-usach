@@ -11,14 +11,66 @@ import plotly.express as px
 import pandas as pd
 import os
 import glob
+import threading
+import time
+import atexit
 from datetime import datetime, timedelta
 from pathlib import Path
 import logging
 
 # Importar desde nuestra estructura modular
 from data.processors import get_current_data, parse_piloto_file, get_sensor_data as get_sensor_data_processor
-from config.settings import WHO_GUIDELINES, get_chile_time, format_chile_time, get_chile_date
+from data.fetch_piloto_files import fetch_and_update_data
+from config.settings import (
+    WHO_GUIDELINES, get_chile_time, format_chile_time, get_chile_date,
+    get_data_status, get_data_freshness, DATA_FETCH_INTERVAL_MINUTES
+)
 from utils.helpers import get_air_quality_category
+
+# Global variable to control background thread
+background_fetcher_running = False
+background_thread = None
+
+def start_background_fetcher():
+    """Start background data fetching thread"""
+    global background_fetcher_running, background_thread
+    
+    if background_fetcher_running:
+        return
+    
+    background_fetcher_running = True
+    
+    def fetch_loop():
+        """Background loop to fetch data periodically"""
+        logging.info("Iniciando servicio de descarga en segundo plano")
+        
+        # Initial fetch
+        try:
+            fetch_and_update_data()
+        except Exception as e:
+            logging.error(f"Error en descarga inicial: {e}")
+        
+        while background_fetcher_running:
+            try:
+                time.sleep(DATA_FETCH_INTERVAL_MINUTES * 60)  # Convert minutes to seconds
+                if background_fetcher_running:  # Check again after sleep
+                    logging.info("Ejecutando descarga programada de datos")
+                    fetch_and_update_data()
+            except Exception as e:
+                logging.error(f"Error en descarga programada: {e}")
+    
+    background_thread = threading.Thread(target=fetch_loop, daemon=True)
+    background_thread.start()
+    logging.info(f"Servicio de descarga iniciado (cada {DATA_FETCH_INTERVAL_MINUTES} minutos)")
+
+def stop_background_fetcher():
+    """Stop background data fetching thread"""
+    global background_fetcher_running
+    background_fetcher_running = False
+    logging.info("Deteniendo servicio de descarga en segundo plano")
+
+# Register cleanup function
+atexit.register(stop_background_fetcher)
 
 # Inicializar la aplicación Dash
 app = dash.Dash(__name__)
@@ -440,42 +492,42 @@ def create_sensor_comparison_plot():
         return create_empty_plot("Error al crear el gráfico")
 
 def get_dashboard_stats():
-    """Obtener estadísticas para el panel general"""
+    """Obtener estadísticas generales del dashboard"""
     try:
         current_data = get_current_data()
+        data_freshness = get_data_freshness()
         
         if current_data.empty:
             return {
                 'status': 'no_data',
-                'last_update': format_chile_time()
+                'last_update': format_chile_time(),
+                'data_status': data_freshness
             }
         
-        # Calcular total de puntos de datos en todos los sensores
-        total_data_points = 0
-        available_sensors = current_data['Sensor_ID'].unique()
+        # Calcular estadísticas
+        total_sensors = len(current_data['Sensor_ID'].unique())
+        avg_mp1 = round(current_data['MP1'].mean(), 1)
+        max_mp1 = round(current_data['MP1'].max(), 1)
+        min_mp1 = round(current_data['MP1'].min(), 1)
+        total_data_points = len(current_data)
         
-        for sensor_id in available_sensors:
-            sensor_data = get_sensor_data_processor(sensor_id)
-            if not sensor_data.empty:
-                total_data_points += len(sensor_data)
-        
-        stats = {
+        return {
             'status': 'success',
-            'total_sensors': len(current_data['Sensor_ID'].unique()),
-            'avg_mp1': f"{current_data['MP1'].mean():.1f}",
-            'max_mp1': f"{current_data['MP1'].max():.1f}",
-            'min_mp1': f"{current_data['MP1'].min():.1f}",
+            'total_sensors': total_sensors,
+            'avg_mp1': avg_mp1,
+            'max_mp1': max_mp1,
+            'min_mp1': min_mp1,
             'total_points': total_data_points,
-            'last_update': format_chile_time()
+            'last_update': format_chile_time(),
+            'data_status': data_freshness
         }
         
-        return stats
-        
     except Exception as e:
-        print(f"Error obteniendo estadísticas del panel: {e}")
+        logging.error(f"Error in get_dashboard_stats: {e}")
         return {
             'status': 'error',
-            'last_update': format_chile_time()
+            'last_update': format_chile_time(),
+            'data_status': get_data_freshness()
         }
 
 def get_sensor_stats(sensor_id, start_date=None, end_date=None):
@@ -739,9 +791,21 @@ def update_general_dashboard(n):
                 })
             ])
             
-            last_update = f"Última verificación: {stats['last_update']}"
+            # Create status info with both data freshness and dashboard refresh
+            data_status = stats['data_status']
+            status_info = html.Div([
+                html.P(f"Última actualización de datos: {data_status['last_update']}", 
+                       style={'margin': '2px 0', 'fontSize': '0.9em', 'color': '#2c3e50'}),
+                html.P(f"Estado: {data_status['message']}", 
+                       style={'margin': '2px 0', 'fontSize': '0.85em', 
+                              'color': '#27ae60' if data_status['status'] == 'fresh' 
+                                      else '#f39c12' if data_status['status'] == 'stale' 
+                                      else '#e74c3c'}),
+                html.P(f"Última verificación del panel: {stats['last_update']}", 
+                       style={'margin': '2px 0', 'fontSize': '0.8em', 'color': '#7f8c8d'})
+            ], style={'textAlign': 'center'})
             
-            return status_cards, empty_fig, empty_fig, sensor_details, last_update
+            return status_cards, empty_fig, empty_fig, sensor_details, status_info
         
         # Manejar caso de error
         if stats.get('status') == 'error':
@@ -839,9 +903,21 @@ def update_general_dashboard(n):
                 html.P("No hay datos de sensores disponibles.", style={'color': '#7f8c8d', 'fontStyle': 'italic'})
             ])
         
-        last_update = f"Última actualización: {stats['last_update']}"
+        # Create status info with both data freshness and dashboard refresh
+        data_status = stats['data_status']
+        status_info = html.Div([
+            html.P(f"Última actualización de datos: {data_status['last_update']}", 
+                   style={'margin': '2px 0', 'fontSize': '0.9em', 'color': '#2c3e50'}),
+            html.P(f"Estado: {data_status['message']}", 
+                   style={'margin': '2px 0', 'fontSize': '0.85em', 
+                          'color': '#27ae60' if data_status['status'] == 'fresh' 
+                                  else '#f39c12' if data_status['status'] == 'stale' 
+                                  else '#e74c3c'}),
+            html.P(f"Última verificación del panel: {stats['last_update']}", 
+                   style={'margin': '2px 0', 'fontSize': '0.8em', 'color': '#7f8c8d'})
+        ], style={'textAlign': 'center'})
         
-        return status_cards, time_series_fig, comparison_fig, sensor_details, last_update
+        return status_cards, time_series_fig, comparison_fig, sensor_details, status_info
     
     except Exception as e:
         print(f"Error en callback update_general_dashboard: {e}")
@@ -1246,15 +1322,27 @@ app.index_string = '''
 
 if __name__ == '__main__':
     print("Iniciando Panel de Control de Calidad del Aire USACH...")
-    print("El panel estará disponible en: http://localhost:8050")
-    print("Consejo: ¡Ejecute 'python fetch_piloto_files.py' primero para asegurar que tenga datos!")
-    print("El panel se actualiza automáticamente cada 10 minutos")
-    print("Características:")
+    print("El panel estará disponible en: http://localhost:8051")
+    print()
+    
+    # Start background data fetcher
+    print("Iniciando servicio de descarga automática de datos...")
+    start_background_fetcher()
+    print(f"✓ Datos se actualizarán automáticamente cada {DATA_FETCH_INTERVAL_MINUTES} minutos")
+    print()
+    
+    print("Características del panel:")
     print("   - Resumen General (Pestaña 1)")
     print("   - Análisis de Sensor Específico (Pestaña 2)")
     print("   - Estado de Sensores (Pestaña 3)")
+    print("   - Actualización automática de datos en segundo plano")
     print()
     print("Presione Ctrl+C para detener el servidor")
     print("-" * 60)
     
-    app.run(debug=True, host='0.0.0.0', port=8051)
+    try:
+        app.run(debug=False, host='0.0.0.0', port=8051)
+    except KeyboardInterrupt:
+        print("\nDeteniendo servidor...")
+        stop_background_fetcher()
+        print("Servidor detenido.")
