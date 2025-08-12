@@ -82,11 +82,16 @@ def start_background_fetcher():
         except Exception as e:
             logger.error(f"Error en descarga programada: {e}", exc_info=True)
 
-    # Perform initial fetch
-    initial_fetch()
-    
-    # Schedule regular fetches
+    # Schedule regular fetches (including initial fetch as first scheduled job)
     scheduler = BackgroundScheduler(timezone=TIMEZONE)
+    
+    # Schedule initial fetch to run in 5 seconds (non-blocking)
+    scheduler.add_job(
+        func=initial_fetch,
+        trigger="date",
+        run_date=get_chile_time() + timedelta(seconds=5),
+        id='initial_fetch'
+    )
     scheduler.add_job(
         func=scheduled_fetch,
         trigger="interval",
@@ -1862,6 +1867,7 @@ if __name__ == '__main__':
         # Start background data fetcher
         print("Iniciando servicio de descarga automática de datos...")
         scheduler = start_background_fetcher()
+        print("✓ Descarga inicial programada para 5 segundos")
         print("✓ Datos se actualizarán automáticamente cada 10 minutos")
         
         # Display features
